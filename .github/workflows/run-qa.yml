@@ -12,7 +12,6 @@ on:
 
 jobs:
   qa:
-    # 👇  put the check here – inside the job
     if: ${{ github.event.inputs.passphrase == secrets.QA_PASSPHRASE }}
     runs-on: ubuntu-latest
 
@@ -43,8 +42,6 @@ jobs:
         name: results-${{ github.run_id }}
         path: results-*.xlsx
 
-    # 👇  if the phrase is wrong, the whole job is skipped;
-    #     this “else” job sends a polite message.
   wrong-pass:
     if: ${{ github.event.inputs.passphrase != secrets.QA_PASSPHRASE }}
     runs-on: ubuntu-latest
