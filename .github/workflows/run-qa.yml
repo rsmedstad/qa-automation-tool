@@ -1,0 +1,50 @@
+name: Run QA now
+
+on:
+  workflow_dispatch:
+    inputs:
+      passphrase:
+        description: 'Enter pass-phrase'
+        required: true
+        type: string
+      input_xlsx:
+        description: 'Upload your input.xlsx'
+        required: true
+        type: string
+
+jobs:
+  qa:
+    if: ${{ github.event.inputs.passphrase == secrets.QA_PASSPHRASE }}
+    runs-on: ubuntu-latest
+    steps:
+      # 1. Checkout repo
+      - uses: actions/checkout@v4
+
+      # 2. Pull uploaded workbook
+      - name: Save uploaded input.xlsx
+        run: |
+          echo "${{ github.event.inputs.input_xlsx }}" | base64 -d > input.xlsx
+
+      # 3. Set up Node (Playwright will install Chromium)
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18
+
+      # 4. Install deps & run
+      - run: |
+          npm ci
+          node qa-test.js input.xlsx
+      
+      # 5. Upload the resulting workbook as an artifact
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        with:
+          name: QA-results
+          path: results-*.xlsx
+    
+    # If wrong pass-phrase, skip and give a friendly message
+  bad-pass:
+    if: ${{ github.event.inputs.passphrase != secrets.QA_PASSPHRASE }}
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "❌ Wrong pass-phrase – run canceled." && exit 1
