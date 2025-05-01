@@ -4,47 +4,50 @@ on:
   workflow_dispatch:
     inputs:
       passphrase:
-        description: 'Enter pass-phrase'
+        description: 'Secret phrase'
         required: true
-        type: string
-      input_xlsx:
-        description: 'Upload your input.xlsx'
+      input_zip_b64:
+        description: 'Base-64 of input.zip'
         required: true
-        type: string
 
 jobs:
   qa:
+    # 👇  put the check here – inside the job
     if: ${{ github.event.inputs.passphrase == secrets.QA_PASSPHRASE }}
     runs-on: ubuntu-latest
+
     steps:
-      # 1. Checkout repo
-      - uses: actions/checkout@v4
+    - name: Fail if pass-phrase empty (defence-in-depth)
+      if: ${{ github.event.inputs.passphrase == '' }}
+      run: |
+        echo "Pass-phrase missing" >&2
+        exit 1
 
-      # 2. Pull uploaded workbook
-      - name: Save uploaded input.xlsx
-        run: |
-          echo "${{ github.event.inputs.input_xlsx }}" | base64 -d > input.xlsx
+    - name: Checkout repo
+      uses: actions/checkout@v4
 
-      # 3. Set up Node (Playwright will install Chromium)
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 18
+    - name: Install Node deps
+      run: npm ci
 
-      # 4. Install deps & run
-      - run: |
-          npm ci
-          node qa-test.js input.xlsx
-      
-      # 5. Upload the resulting workbook as an artifact
-      - name: Upload results
-        uses: actions/upload-artifact@v4
-        with:
-          name: QA-results
-          path: results-*.xlsx
-    
-    # If wrong pass-phrase, skip and give a friendly message
-  bad-pass:
+    - name: Create input.zip from Base-64
+      run: |
+        echo "${{ github.event.inputs.input_zip_b64 }}" | base64 -d > input.zip
+        unzip -o input.zip
+
+    - name: Run QA
+      run: node qa-test.js input.xlsx
+
+    - name: Upload results
+      uses: actions/upload-artifact@v4
+      with:
+        name: results-${{ github.run_id }}
+        path: results-*.xlsx
+
+    # 👇  if the phrase is wrong, the whole job is skipped;
+    #     this “else” job sends a polite message.
+  wrong-pass:
     if: ${{ github.event.inputs.passphrase != secrets.QA_PASSPHRASE }}
     runs-on: ubuntu-latest
     steps:
-      - run: echo "❌ Wrong pass-phrase – run canceled." && exit 1
+      - run: |
+          echo "::error ::Bad pass-phrase – QA not started"
