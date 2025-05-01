@@ -12,39 +12,40 @@ on:
 
 jobs:
   qa:
-    if: ${{ github.event.inputs.passphrase == secrets.QA_PASSPHRASE }}
     runs-on: ubuntu-latest
 
     steps:
-    - name: Fail if pass-phrase empty (defence-in-depth)
-      if: ${{ github.event.inputs.passphrase == '' }}
+    # ─────────────────── 1 · Gatekeeper ───────────────────
+    - name: Validate pass-phrase
       run: |
-        echo "Pass-phrase missing" >&2
-        exit 1
+        if [ -z "${{ github.event.inputs.passphrase }}" ]; then
+          echo "::error ::Pass-phrase missing"
+          exit 1
+        fi
+        if [ "${{ github.event.inputs.passphrase }}" != "${{ secrets.QA_PASSPHRASE }}" ]; then
+          echo "::error ::Bad pass-phrase – QA not started"
+          exit 1
+        fi
 
-    - name: Checkout repo
-      uses: actions/checkout@v4
+    # ─────────────────── 2 · Checkout code ─────────────────
+    - uses: actions/checkout@v4
 
+    # ─────────────────── 3 · Install deps ─────────────────
     - name: Install Node deps
       run: npm ci
 
-    - name: Create input.zip from Base-64
+    # ─────────────────── 4 · Recreate input.xlsx ───────────
+    - name: Restore input.xlsx from Base-64 zip
       run: |
         echo "${{ github.event.inputs.input_zip_b64 }}" | base64 -d > input.zip
         unzip -o input.zip
 
+    # ─────────────────── 5 · Run the crawler ──────────────
     - name: Run QA
       run: node qa-test.js input.xlsx
 
-    - name: Upload results
-      uses: actions/upload-artifact@v4
+    # ─────────────────── 6 · Upload results ───────────────
+    - uses: actions/upload-artifact@v4
       with:
         name: results-${{ github.run_id }}
         path: results-*.xlsx
-
-  wrong-pass:
-    if: ${{ github.event.inputs.passphrase != secrets.QA_PASSPHRASE }}
-    runs-on: ubuntu-latest
-    steps:
-      - run: |
-          echo "::error ::Bad pass-phrase – QA not started"
