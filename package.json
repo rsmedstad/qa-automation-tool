@@ -1,0 +1,10 @@
+{
+    "name": "qa-test",
+    "version": "1.0.0",
+    "bin": { "qa-test": "qa-test.js" },
+    "dependencies": {
+      "playwright": "^1.40.0",
+      "xlsx": "^0.18.0"
+    }
+  }
+  
