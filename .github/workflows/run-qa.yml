@@ -19,39 +19,40 @@ jobs:
     - name: Validate pass-phrase
       run: |
         if [ -z "${{ github.event.inputs.passphrase }}" ]; then
-          echo "::error ::Pass-phrase missing"
+          echo "::error ::Pass-phrase is missing. Ensure you provide the passphrase when triggering the workflow."
           exit 1
         fi
         if [ "${{ github.event.inputs.passphrase }}" != "${{ secrets.QA_PASSPHRASE }}" ]; then
-          echo "::error ::Bad pass-phrase – QA not started"
+          echo "::error ::Incorrect pass-phrase. Check the QA_PASSPHRASE secret in repository settings."
           exit 1
         fi
 
     # ─────────────────── 2 · Checkout code ─────────────────
     - uses: actions/checkout@v4
 
-    # ─────────────────── 3 · Install deps ─────────────────
-    - name: Validate package-lock.json
+    # ─────────────────── 3 · Ensure package-lock.json exists ──────────
+    - name: Ensure package-lock.json exists
       run: |
         if [ ! -f package-lock.json ]; then
-          echo "::error ::Missing package-lock.json – npm ci cannot run"
+          echo "::error ::package-lock.json is missing. Please add it to the repository."
           exit 1
         fi
 
+    # ─────────────────── 4 · Install deps ─────────────────
     - name: Install Node deps
       run: npm ci
 
-    # ─────────────────── 4 · Recreate input.xlsx ───────────
+    # ─────────────────── 5 · Recreate input.xlsx ───────────
     - name: Restore input.xlsx from Base-64 zip
       run: |
         echo "${{ github.event.inputs.input_zip_b64 }}" | base64 -d > input.zip
         unzip -o input.zip
 
-    # ─────────────────── 5 · Run the crawler ──────────────
+    # ─────────────────── 6 · Run the crawler ──────────────
     - name: Run QA
       run: node qa-test.js input.xlsx
 
-    # ─────────────────── 6 · Upload results ───────────────
+    # ─────────────────── 7 · Upload results ───────────────
     - uses: actions/upload-artifact@v4
       with:
         name: results-${{ github.run_id }}
