@@ -4,6 +4,7 @@
   "bin": {
     "qa-test": "qa-test.js"
   },
+  "type": "module",
   "dependencies": {
     "@octokit/core": "^6.1.5",
     "formidable": "^3.5.4",
