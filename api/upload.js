@@ -87,8 +87,36 @@ export default async function handler(req, res) {
     // 4. Upload blob to GitHub
     console.log("Initializing Octokit...");
     const octo = new Octokit({ auth: process.env.GH_PAT });
+
+    // Check if the file already exists to get its SHA
+    let sha = null;
+    try {
+      console.log("Checking if file exists in GitHub at path: uploads/input.xlsx");
+      const response = await octo.request("GET /repos/{owner}/{repo}/contents/{path}", {
+        owner: "rsmedstad",
+        repo: "gehc-cmc-testing",
+        path: "uploads/input.xlsx",
+        ref: "main",
+      });
+      if (response.data && response.data.sha) {
+        sha = response.data.sha;
+        console.log("File exists, SHA:", sha);
+      } else {
+        console.log("File exists but SHA not found in response:", response.data);
+      }
+    } catch (error) {
+      console.log("GET request failed with status:", error.status, "message:", error.message);
+      if (error.status === 404) {
+        console.log("File does not exist, will create new file");
+      } else {
+        console.error("Error checking file existence:", error);
+        throw new Error(`Failed to check file existence: ${error.message}`);
+      }
+    }
+
+    // Upload the file (create or update)
     console.log("Uploading file to GitHub...");
-    await octo.request("PUT /repos/{owner}/{repo}/contents/{path}", {
+    const uploadParams = {
       owner: "rsmedstad",
       repo: "gehc-cmc-testing",
       path: "uploads/input.xlsx",
@@ -96,7 +124,14 @@ export default async function handler(req, res) {
       content: contentB64,
       committer: { name: "QA Worker", email: "noreply@example.com" },
       author: { name: "QA Worker", email: "noreply@example.com" },
-    });
+    };
+    if (sha) {
+      console.log("Including SHA in upload params:", sha);
+      uploadParams.sha = sha; // Include SHA if the file exists (update)
+    } else {
+      console.log("No SHA, creating new file");
+    }
+    await octo.request("PUT /repos/{owner}/{repo}/contents/{path}", uploadParams);
     console.log("File uploaded to GitHub");
 
     // 5. Trigger the GitHub Actions workflow
@@ -110,7 +145,6 @@ export default async function handler(req, res) {
         ref: "main",
         inputs: {
           passphrase: process.env.QA_PASSPHRASE,
-          // Removed input_zip_b64 since it's not needed
         },
       }
     );
