@@ -51,10 +51,20 @@ export default async function handler(req, res) {
       console.log("Passphrase missing");
       return res.status(401).json({ error: "Passphrase is required" });
     }
-    if (pass !== process.env.QA_PASSPHRASE) {
-      console.log("Passphrase mismatch:", pass, process.env.QA_PASSPHRASE);
-      return res.status(401).json({ error: "Bad pass-phrase" });
-    }
+    if (!pass) {
+        console.log("Passphrase missing");
+        return res.status(401).json({ error: "Passphrase is required" });
+      }
+      console.log("Comparing passphrases:", {
+        sent: pass,
+        sentLength: pass.length,
+        expected: process.env.QA_PASSPHRASE,
+        expectedLength: process.env.QA_PASSPHRASE.length,
+      });
+      if (pass !== process.env.QA_PASSPHRASE) {
+        console.log("Passphrase mismatch:", pass, process.env.QA_PASSPHRASE);
+        return res.status(401).json({ error: "Bad pass-phrase" });
+      }
     if (!file || !file.originalFilename || !file.originalFilename.endsWith(".xlsx")) {
       console.log("File validation failed:", file);
       return res.status(400).json({ error: "Expecting file=input.xlsx" });
