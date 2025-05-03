@@ -110,7 +110,7 @@ export default async function handler(req, res) {
         ref: "main",
         inputs: {
           passphrase: process.env.QA_PASSPHRASE,
-          input_zip_b64: "",
+          // Removed input_zip_b64 since it's not needed
         },
       }
     );
