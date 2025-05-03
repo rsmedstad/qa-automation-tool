@@ -1,10 +1,21 @@
 {
-    "name": "qa-test",
-    "version": "1.0.0",
-    "bin": { "qa-test": "qa-test.js" },
-    "dependencies": {
-      "playwright": "^1.40.0",
-      "xlsx": "^0.18.0"
-    }
-  }
-  
+  "name": "qa-test",
+  "version": "1.0.0",
+  "bin": {
+    "qa-test": "qa-test.js"
+  },
+  "dependencies": {
+    "@octokit/core": "^6.1.5",
+    "formidable": "^3.5.4",
+    "playwright": "^1.40.0",
+    "xlsx": "^0.18.0"
+  },
+  "main": "qa-test.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": ""
+}

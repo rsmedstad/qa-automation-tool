@@ -1,61 +1,59 @@
 name: Run QA now
-
 on:
   workflow_dispatch:
     inputs:
       passphrase:
-        description: 'Secret phrase'
+        description: Secret phrase
         required: true
-      input_zip_b64:
-        description: 'Base‑64 of input.zip'
+      asset_id:
+        description: ID of draft‑release asset (input.xlsx)
+        required: true
+      release_id:
+        description: ID of the draft release
         required: true
 
 jobs:
   qa:
     runs-on: ubuntu-latest
-
     steps:
-    # ─────────────────── 1 · Gatekeeper ───────────────────
     - name: Validate pass‑phrase
       run: |
-        if [ -z "${{ github.event.inputs.passphrase }}" ]; then
-          echo "::error ::Pass‑phrase is missing. Provide it when triggering the workflow."
-          exit 1
-        fi
-        if [ "${{ github.event.inputs.passphrase }}" != "${{ secrets.QA_PASSPHRASE }}" ]; then
-          echo "::error ::Incorrect pass‑phrase."
-          exit 1
-        fi
+        if [ "${{ inputs.passphrase }}" != "${{ secrets.QA_PASSPHRASE }}" ]; then
+          echo "::error ::Incorrect pass‑phrase"; exit 1; fi
 
-    # ─────────────────── 2 · Checkout code ────────────────
     - uses: actions/checkout@v4
-      with:
-        path: ./
 
-    # ─────────────────── 3 · Ensure lock‑file present ─────
-    - name: Ensure package‑lock.json exists
-      run: |
-        if [ ! -f package-lock.json ]; then
-          echo "::error ::package‑lock.json is missing in the repo."
-          exit 1
-        fi
-
-    # ─────────────────── 4 · Install deps ─────────────────
-    - name: Install Node deps
+    - name: Install deps
       run: npm ci
 
-    # ─────────────────── 5 · Restore input.xlsx ───────────
-    - name: Restore input.xlsx from Base‑64 zip
+    # 1️⃣ download the XLSX -----------------------------------------------
+    - name: Download input asset
+      env:
+        GH_PAT: ${{ secrets.GH_PAT }}
       run: |
-        echo "${{ github.event.inputs.input_zip_b64 }}" | base64 -d > input.zip
-        unzip -o input.zip
+        curl -L \
+          -H "Authorization: Bearer $GH_PAT" \
+          -H "Accept: application/octet-stream" \
+          "https://api.github.com/repos/${{ github.repository }}/releases/assets/${{ inputs.asset_id }}" \
+          -o input.xlsx
 
-    # ─────────────────── 6 · Run the crawler ──────────────
+    # 2️⃣ run the crawler --------------------------------------------------
     - name: Run QA
       run: node qa-test.js input.xlsx
 
-    # ─────────────────── 7 · Upload results ───────────────
+    # 3️⃣ upload results ---------------------------------------------------
     - uses: actions/upload-artifact@v4
       with:
         name: results-${{ github.run_id }}
         path: results-*.xlsx
+
+    # 4️⃣ clean up the temp release ---------------------------------------
+    - name: Delete temp release + asset
+      if: always()
+      env:
+        GH_PAT: ${{ secrets.GH_PAT }}
+      run: |
+        # delete release (also deletes asset)
+        curl -X DELETE \
+          -H "Authorization: Bearer $GH_PAT" \
+          "https://api.github.com/repos/${{ github.repository }}/releases/${{ inputs.release_id }}"
