@@ -144,7 +144,8 @@ export default async function handler(req, res) {
         file: "run-qa.yml",
         ref: "main",
         inputs: {
-          passphrase: process.env.QA_PASSPHRASE,
+          // passphrase: process.env.QA_PASSPHRASE, // Removed for now to avoid Unexpected inputs
+          asset_id: "placeholder-asset-id", // Placeholder; replace with the correct value
         },
       }
     );
