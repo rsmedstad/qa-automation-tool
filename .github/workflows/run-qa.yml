@@ -72,3 +72,5 @@ jobs:
           console.log('Sheet names:', wb.SheetNames);
           console.log('First 5 rows:', XLSX.utils.sheet_to_json(wb.Sheets.URLs).slice(0,5));
         "
+    - name: Enhanced Debug XLSX
+      run: node debug-xlsx.js input.xlsx
