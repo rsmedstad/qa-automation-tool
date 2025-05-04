@@ -32,17 +32,17 @@ import { chromium, devices } from 'playwright';
   const wb = XLSX.readFile(inputFile, { cellStyles: true });
   console.log('Sheet names:', wb.SheetNames); // Debug: Log all sheet names
 
-  // Check if "URLs" sheet exists
-  const sheetName = 'URLs';
+  // Check if "Sheet1" exists (based on GitHub Actions log)
+  const sheetName = 'Sheet1';
   if (!wb.SheetNames.includes(sheetName)) {
     console.error(`Sheet "${sheetName}" not found. Available sheets:`, wb.SheetNames);
     process.exit(1);
   }
 
-  // Convert "URLs" sheet to JSON
+  // Convert "Sheet1" to JSON
   const sheet = wb.Sheets[sheetName];
   const jsonData = XLSX.utils.sheet_to_json(sheet);
-  console.log('First 5 rows of URLs sheet:', jsonData.slice(0, 5)); // Debug: Log first 5 rows
+  console.log('First 5 rows of Sheet1:', jsonData.slice(0, 5)); // Debug: Log first 5 rows
 
   // Extract URLs from the "URL" column
   const urls = [...new Set(
@@ -55,7 +55,12 @@ import { chromium, devices } from 'playwright';
     process.exit(1);
   }
 
-  const tests = XLSX.utils.sheet_to_json(wb.Sheets.Tests); // Test definitions
+  // Check for "Tests" sheet
+  if (!wb.SheetNames.includes('Tests')) {
+    console.error('Sheet "Tests" not found. Available sheets:', wb.SheetNames);
+    process.exit(1);
+  }
+  const tests = XLSX.utils.sheet_to_json(wb.Sheets.Tests);
   console.log('First 5 tests:', tests.slice(0, 5)); // Debug: Log first 5 tests
 
   const metaHdr = ['Run Date', 'Run Time', 'Initiated By', 'Notes'];
