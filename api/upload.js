@@ -84,55 +84,41 @@ export default async function handler(req, res) {
     const contentB64 = fileContent.toString("base64");
     console.log("File read successfully, length:", fileContent.length);
 
-    // 4. Upload blob to GitHub
+    // 4. Create a draft release and upload the file as an asset
     console.log("Initializing Octokit...");
     const octo = new Octokit({ auth: process.env.GH_PAT });
 
-    // Check if the file already exists to get its SHA
-    let sha = null;
-    try {
-      console.log("Checking if file exists in GitHub at path: uploads/input.xlsx");
-      const response = await octo.request("GET /repos/{owner}/{repo}/contents/{path}", {
-        owner: "rsmedstad",
-        repo: "gehc-cmc-testing",
-        path: "uploads/input.xlsx",
-        ref: "main",
-      });
-      if (response.data && response.data.sha) {
-        sha = response.data.sha;
-        console.log("File exists, SHA:", sha);
-      } else {
-        console.log("File exists but SHA not found in response:", response.data);
-      }
-    } catch (error) {
-      console.log("GET request failed with status:", error.status, "message:", error.message);
-      if (error.status === 404) {
-        console.log("File does not exist, will create new file");
-      } else {
-        console.error("Error checking file existence:", error);
-        throw new Error(`Failed to check file existence: ${error.message}`);
-      }
-    }
-
-    // Upload the file (create or update)
-    console.log("Uploading file to GitHub...");
-    const uploadParams = {
+    // Create a draft release
+    console.log("Creating draft release...");
+    const releaseResponse = await octo.request("POST /repos/{owner}/{repo}/releases", {
       owner: "rsmedstad",
       repo: "gehc-cmc-testing",
-      path: "uploads/input.xlsx",
-      message: "ci: add input.xlsx from Vercel",
-      content: contentB64,
-      committer: { name: "QA Worker", email: "noreply@example.com" },
-      author: { name: "QA Worker", email: "noreply@example.com" },
-    };
-    if (sha) {
-      console.log("Including SHA in upload params:", sha);
-      uploadParams.sha = sha; // Include SHA if the file exists (update)
-    } else {
-      console.log("No SHA, creating new file");
-    }
-    await octo.request("PUT /repos/{owner}/{repo}/contents/{path}", uploadParams);
-    console.log("File uploaded to GitHub");
+      tag_name: `qa-run-${Date.now()}`, // Unique tag for the release
+      name: "QA Run Draft Release",
+      draft: true,
+      prerelease: false,
+      generate_release_notes: false,
+    });
+    const releaseId = releaseResponse.data.id;
+    console.log("Draft release created, release_id:", releaseId);
+
+    // Upload input.xlsx as an asset to the draft release
+    console.log("Uploading input.xlsx as an asset to the draft release...");
+    const assetResponse = await octo.request(
+      "POST /repos/{owner}/{repo}/releases/{release_id}/assets{?name,label}",
+      {
+        owner: "rsmedstad",
+        repo: "gehc-cmc-testing",
+        release_id: releaseId,
+        name: "input.xlsx",
+        headers: {
+          "content-type": "application/octet-stream",
+        },
+        data: fileContent, // Use the raw file content (Buffer)
+      }
+    );
+    const assetId = assetResponse.data.id;
+    console.log("Asset uploaded, asset_id:", assetId);
 
     // 5. Trigger the GitHub Actions workflow
     console.log("Triggering GitHub Actions workflow...");
@@ -144,8 +130,9 @@ export default async function handler(req, res) {
         file: "run-qa.yml",
         ref: "main",
         inputs: {
-          // passphrase: process.env.QA_PASSPHRASE, // Removed for now to avoid Unexpected inputs
-          asset_id: "placeholder-asset-id", // Placeholder; replace with the correct value
+          passphrase: process.env.QA_PASSPHRASE,
+          asset_id: assetId.toString(),
+          release_id: releaseId.toString(),
         },
       }
     );
