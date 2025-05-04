@@ -11,6 +11,7 @@
 import os from 'os';
 import XLSX from 'xlsx';
 import { chromium, devices } from 'playwright';
+import fs from 'fs';
 
 /* everything that follows runs inside an async IIFE so we can use await */
 (async () => {
@@ -29,6 +30,13 @@ import { chromium, devices } from 'playwright';
   console.log(`▶ Initiated : ${initiatedBy}\n`);
 
   /*──────────────────────────── 2. Load workbook data ──────────────────────────*/
+  // Check if the file looks like JSON (indicating an API error)
+  const fileContent = fs.readFileSync(inputFile, 'utf8');
+  if (fileContent.startsWith('{')) {
+    console.error('Error: input.xlsx is not an Excel file. Contents:', fileContent);
+    process.exit(1);
+  }
+
   const wb = XLSX.readFile(inputFile, { cellStyles: true });
   console.log('Sheet names:', wb.SheetNames); // Debug: Log all sheet names
 
