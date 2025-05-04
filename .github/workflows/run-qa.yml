@@ -57,3 +57,18 @@ jobs:
         curl -X DELETE \
           -H "Authorization: Bearer $GH_PAT" \
           "https://api.github.com/repos/${{ github.repository }}/releases/${{ inputs.release_id }}"
+
+    - name: List files in workspace
+      run: ls -l
+
+    - name: Check input.xlsx exists
+      run: file input.xlsx
+
+    - name: Debug XLSX
+      run: |
+        node -e "
+          import XLSX from 'xlsx';
+          const wb = XLSX.readFile('input.xlsx');
+          console.log('Sheet names:', wb.SheetNames);
+          console.log('First 5 rows:', XLSX.utils.sheet_to_json(wb.Sheets.URLs).slice(0,5));
+        "
