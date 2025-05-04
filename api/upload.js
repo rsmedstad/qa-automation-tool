@@ -81,7 +81,6 @@ export default async function handler(req, res) {
         reject(err);
       });
     });
-    const contentB64 = fileContent.toString("base64");
     console.log("File read successfully, length:", fileContent.length);
 
     // 4. Create a draft release and upload the file as an asset
@@ -102,10 +101,26 @@ export default async function handler(req, res) {
     const releaseId = releaseResponse.data.id;
     console.log("Draft release created, release_id:", releaseId);
 
+    // Wait for a short delay to ensure the release is fully available
+    console.log("Waiting for release to be available...");
+    await new Promise(resolve => setTimeout(resolve, 2000)); // 2-second delay
+
+    // Verify the release exists
+    console.log("Verifying release exists...");
+    const releaseCheck = await octo.request("GET /repos/{owner}/{repo}/releases/{release_id}", {
+      owner: "rsmedstad",
+      repo: "gehc-cmc-testing",
+      release_id: releaseId,
+    }).catch(error => {
+      console.error("Error verifying release:", error);
+      throw new Error(`Failed to verify release: ${error.message}`);
+    });
+    console.log("Release verified:", releaseCheck.data.id);
+
     // Upload input.xlsx as an asset to the draft release
     console.log("Uploading input.xlsx as an asset to the draft release...");
     const assetResponse = await octo.request(
-      "POST /repos/{owner}/{repo}/releases/{release_id}/assets{?name,label}",
+      "POST /repos/{owner}/{repo}/releases/{release_id}/assets{?name}",
       {
         owner: "rsmedstad",
         repo: "gehc-cmc-testing",
@@ -113,10 +128,14 @@ export default async function handler(req, res) {
         name: "input.xlsx",
         headers: {
           "content-type": "application/octet-stream",
+          "content-length": fileContent.length,
         },
         data: fileContent, // Use the raw file content (Buffer)
       }
-    );
+    ).catch(error => {
+      console.error("Asset upload failed:", error);
+      throw new Error(`Failed to upload asset: ${error.message}`);
+    });
     const assetId = assetResponse.data.id;
     console.log("Asset uploaded, asset_id:", assetId);
 
