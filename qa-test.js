@@ -8,9 +8,9 @@
   • Leaves conditional-formatting & column widths intact
 ───────────────────────────────────────────────────────────────────────────────*/
 
-const os                     = require('os');
-const XLSX                   = require('xlsx');
-const { chromium, devices }  = require('playwright');
+import os from 'os';
+import XLSX from 'xlsx';
+import { chromium, devices } from 'playwright';
 
 /* everything that follows runs inside an async IIFE so we can use await */
 ;(async () => {
@@ -53,7 +53,7 @@ const desktopCtx = await browser.newContext({ viewport: { width: 1280, height: 8
 const mobileCtx  = await browser.newContext(devices['Pixel 5']);
 
 /*──────────────────────────── 5. Helpers ─────────────────────────────────────*/
-const HTTP_REDIRECT = [301, 302];          // redirects we’ll count as “OK”
+const HTTP_REDIRECT = [301, 302];          // redirects we'll count as "OK"
 
 /** Scroll page one viewport at a time until any selector becomes visible. */
 async function scrollAndFind(page, selectors, maxScreens = 10) {
@@ -155,7 +155,7 @@ async function runUrl(url, idx) {
         }
 
         /* ##### Interaction / flows #########################################*/
-        case 'TC-08': {  // “Contact us” button brings up a form
+        case 'TC-08': {  // "Contact us" button brings up a form
           const before = (await pageD.$$('form')).length;
           await pageD.waitForSelector('button.ge-contact-us-button__contactus-action-button',
                                       { timeout: 10_000 });
@@ -259,4 +259,4 @@ ws['!ref'] = XLSX.utils.encode_range({
 XLSX.writeFile(wb, outputFile, { bookType: 'xlsx', cellStyles: true });
 console.log(`\n✅ Results saved → ${outputFile}\n`);
 process.exit(0);
-})();            
+})();

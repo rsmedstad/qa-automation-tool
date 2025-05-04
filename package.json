@@ -1,6 +1,7 @@
 {
   "name": "qa-test",
   "version": "1.0.0",
+  "type": "module",
   "bin": {
     "qa-test": "qa-test.js"
   },
