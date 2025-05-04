@@ -74,3 +74,8 @@ jobs:
         "
     - name: Enhanced Debug XLSX
       run: node debug-xlsx.js input.xlsx
+
+    - uses: actions/upload-artifact@v4
+      with:
+        name: debug-input-xlsx
+        path: input.xlsx
