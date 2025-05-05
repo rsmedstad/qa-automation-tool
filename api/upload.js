@@ -1,23 +1,40 @@
+/*───────────────────────────────────────────────────────────────────────────────
+  api/upload.js
+  ----------
+  • Vercel Function to handle file uploads (e.g., input.xlsx) for QA testing
+  • Validates a passphrase, uploads the file to a GitHub draft release, and triggers
+    a GitHub Actions workflow (run-qa.yml)
+  • Uses ES Modules for compatibility with Vercel
+  • Does not write files locally, avoiding issues with uploads/ directory
+───────────────────────────────────────────────────────────────────────────────*/
+
 import { Octokit } from "@octokit/core";
 import formidable from "formidable";
 import { createReadStream } from "fs";
 
+// Configure Vercel to disable default body parsing for multipart/form-data
 export const config = {
   api: {
-    bodyParser: false, // Disable Vercel's default body parsing to handle multipart/form-data
+    bodyParser: false,
   },
 };
 
+/**
+ * Vercel Function handler for POST requests to upload files and trigger QA workflow.
+ * @param {Object} req - The HTTP request object.
+ * @param {Object} res - The HTTP response object.
+ */
 export default async function handler(req, res) {
   console.log("Received request:", req.method, req.headers);
 
+  // Step 1: Validate request method (only POST allowed)
   if (req.method !== "POST") {
     console.log("Method not allowed:", req.method);
     return res.status(405).json({ error: "Method Not Allowed" });
   }
 
   try {
-    // Verify environment variables
+    // Step 2: Verify environment variables for authentication
     if (!process.env.QA_PASSPHRASE) {
       throw new Error("QA_PASSPHRASE environment variable is not set");
     }
@@ -25,7 +42,7 @@ export default async function handler(req, res) {
       throw new Error("GH_PAT environment variable is not set");
     }
 
-    // Parse multipart/form-data using formidable
+    // Step 3: Parse multipart/form-data using formidable
     console.log("Parsing form data...");
     const form = formidable({ multiples: false });
     const { fields, files } = await new Promise((resolve, reject) => {
@@ -39,13 +56,13 @@ export default async function handler(req, res) {
       });
     });
 
-    // Extract passphrase and file
+    // Step 4: Extract passphrase and file from form data
     const pass = fields.passphrase && fields.passphrase[0] ? fields.passphrase[0].trim().toLowerCase() : null;
     const file = files.file && files.file[0] ? files.file[0] : null;
 
     console.log("Extracted fields:", { passphrase: pass, file });
 
-    // 1. Gatekeeper
+    // Step 5: Validate passphrase
     if (!pass) {
       console.log("Passphrase missing");
       return res.status(401).json({ error: "Passphrase is required" });
@@ -62,13 +79,13 @@ export default async function handler(req, res) {
       return res.status(401).json({ error: "Bad pass-phrase" });
     }
 
-    // 2. File validation
+    // Step 6: Validate file presence and type
     if (!file || !file.originalFilename || !file.originalFilename.endsWith(".xlsx")) {
       console.log("File validation failed:", file);
       return res.status(400).json({ error: "Expecting file=input.xlsx" });
     }
 
-    // 3. Read file content
+    // Step 7: Read file content into memory (no local save to uploads/)
     console.log("Reading file:", file.filepath);
     const fileContent = await new Promise((resolve, reject) => {
       const chunks = [];
@@ -82,13 +99,13 @@ export default async function handler(req, res) {
     });
     console.log("File read successfully, length:", fileContent.length);
 
-    // 4. Create a draft release and upload the file as an asset
+    // Step 8: Initialize Octokit for GitHub API interactions
     console.log("Initializing Octokit...");
-    const octo = new Octokit({ auth: process.env.GH_PAT });
+    const octokit = new Octokit({ auth: process.env.GH_PAT });
 
-    // Create a draft release
+    // Step 9: Create a draft release on GitHub
     console.log("Creating draft release...");
-    const releaseResponse = await octo.request("POST /repos/{owner}/{repo}/releases", {
+    const releaseResponse = await octokit.request("POST /repos/{owner}/{repo}/releases", {
       owner: "rsmedstad",
       repo: "gehc-cmc-testing",
       tag_name: `qa-run-${Date.now()}`, // Unique tag for the release
@@ -101,10 +118,10 @@ export default async function handler(req, res) {
     const uploadUrl = releaseResponse.data.upload_url;
     console.log("Draft release created, release_id:", releaseId, "upload_url:", uploadUrl);
 
-    // Upload input.xlsx as an asset to the draft release using the upload_url
+    // Step 10: Upload input.xlsx as an asset to the draft release
     console.log("Uploading input.xlsx as an asset to the draft release...");
     const assetUrl = uploadUrl.replace("{?name,label}", "?name=input.xlsx");
-    const assetResponse = await octo.request(`POST ${assetUrl}`, {
+    const assetResponse = await octokit.request(`POST ${assetUrl}`, {
       headers: {
         "content-type": "application/octet-stream",
         "content-length": fileContent.length,
@@ -117,9 +134,9 @@ export default async function handler(req, res) {
     const assetId = assetResponse.data.id;
     console.log("Asset uploaded, asset_id:", assetId);
 
-    // 5. Trigger the GitHub Actions workflow
+    // Step 11: Trigger the GitHub Actions workflow (run-qa.yml)
     console.log("Triggering GitHub Actions workflow...");
-    await octo.request(
+    await octokit.request(
       "POST /repos/{owner}/{repo}/actions/workflows/{file}/dispatches",
       {
         owner: "rsmedstad",
@@ -135,6 +152,7 @@ export default async function handler(req, res) {
     );
     console.log("Workflow triggered successfully");
 
+    // Step 12: Return success response
     return res.status(200).json({ ok: true, message: "Workflow dispatched ✅" });
   } catch (error) {
     console.error("Error in Vercel Function:", error);
