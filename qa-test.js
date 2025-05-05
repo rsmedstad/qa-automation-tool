@@ -2,11 +2,11 @@
 /*───────────────────────────────────────────────────────────────────────────────
   qa-test.js
   ----------
-  • Reads workbook (URLs / Tests / empty Results + Metadata)
-  • Runs Playwright checks (desktop + mobile)
+  • Reads workbook (URLs / empty Results + Metadata)
+  • Runs Playwright checks (desktop + mobile) based on Test IDs specified per URL
   • Writes Pass/Fail matrix and fills Metadata
   • Captures screenshots for failed tests
-  • Reports HTTP status code for each page, renumbered tests to avoid gaps
+  • Test definitions are documented in README.md
 ───────────────────────────────────────────────────────────────────────────────*/
 
 import os from 'os';
@@ -48,7 +48,7 @@ try {
     console.log('Sheet names:', wb.SheetNames); // Debug: Log all sheet names
 
     // Check for required sheets
-    const requiredSheets = ['URLs', 'Tests', 'Metadata', 'Results'];
+    const requiredSheets = ['URLs', 'Metadata', 'Results'];
     for (const sheet of requiredSheets) {
       if (!wb.SheetNames.includes(sheet)) {
         console.error(`Required sheet "${sheet}" not found. Available sheets:`, wb.SheetNames);
@@ -61,35 +61,29 @@ try {
     const urlJsonData = XLSX.utils.sheet_to_json(urlSheet);
     console.log('First 5 rows of URLs sheet:', urlJsonData.slice(0, 5)); // Debug: Log first 5 rows
 
-    // Extract URLs from the "URL" column
-    const urls = [...new Set(
-      urlJsonData.map(row => row['URL']).filter(Boolean)
-    )];
-    console.log('Extracted URLs:', urls); // Debug: Log the extracted URLs
+    // Extract URLs and their test IDs
+    const urls = urlJsonData.map(row => ({
+      url: row['URL'],
+      testIds: (row['Test IDs'] || '').split(',').map(id => id.trim()).filter(Boolean)
+    }));
+    console.log('Extracted URLs with Test IDs:', urls); // Debug: Log the extracted URLs and test IDs
 
     if (!urls.length) {
       console.error('No URLs found.');
       process.exit(1);
     }
 
-    // Extract tests from the "Tests" sheet
-    const tests = XLSX.utils.sheet_to_json(wb.Sheets.Tests);
-    console.log('First 5 tests:', tests.slice(0, 5)); // Debug: Log first 5 tests
-
-    // Renumber tests: TC-14 becomes TC-13
-    tests.forEach(test => {
-      if (test['Test ID'] === 'TC-14') {
-        test['Test ID'] = 'TC-13';
-      }
-    });
-
-    const metaHdr = ['Run Date', 'Run Time', 'Initiated By', 'Notes'];
+    // Define all possible test IDs (as per README)
+    const allTestIds = [
+      'TC-01', 'TC-02', 'TC-03', 'TC-04', 'TC-05', 'TC-06',
+      'TC-07', 'TC-08', 'TC-09', 'TC-10', 'TC-11', 'TC-12', 'TC-13'
+    ];
 
     /*──────────────────────────── 3. Seed empty results ─────────────────────────*/
     const results = urls.map(u => {
-      const row = { URL: u };
-      tests.forEach(t => (row[t['Test ID']] = 'NA')); // Initialize test results as NA
-      row['HTTP Status'] = '-'; // New column for HTTP status
+      const row = { URL: u.url };
+      allTestIds.forEach(id => (row[id] = 'NA')); // Initialize all test results as NA
+      row['HTTP Status'] = '-'; // Column for HTTP status
       row['Page Pass?'] = 'Not Run';
       return row;
     });
@@ -132,7 +126,9 @@ try {
     }
 
     /*──────────────────────────── 6. Per-URL runner ─────────────────────────────*/
-    async function runUrl(url, idx) {
+    async function runUrl(urlData, idx) {
+      const url = urlData.url;
+      const testIds = urlData.testIds;
       console.log(`[${idx + 1}/${urls.length}] ${url}`);
       const t0 = Date.now();
 
@@ -158,18 +154,17 @@ try {
         console.log(`Mobile navigation error for ${url}: ${error.message}`);
       }
 
-      // Record HTTP status (formerly TC-13)
+      // Record HTTP status
       const httpStatus = respD ? respD.status() : 'N/A';
       results[idx]['HTTP Status'] = httpStatus;
 
       // Track failed test IDs for this URL
       const failedTestIds = [];
 
-      /* ---------- iterate through every Test ID ---------- */
-      for (const t of tests) {
-        const id = t['Test ID'];
-        const scope = (t['Applies To'] || '').split(';').map(s => s.trim());
-        if (scope[0] !== 'All' && !scope.includes(url)) { results[idx][id] = 'NA'; continue; }
+      /* ---------- iterate through every Test ID specified for this URL ---------- */
+      for (const id of allTestIds) {
+        // Skip tests not specified for this URL
+        if (!testIds.includes(id)) continue;
 
         let pass = false;
         try {
@@ -262,7 +257,7 @@ try {
               break;
             }
 
-            /* ##### Basic HTTP sanity (renumbered from TC-14 to TC-13) ##########*/
+            /* ##### Basic HTTP sanity ###########################################*/
             case 'TC-13': {                                                      // Check if HTTP status is 2xx (success) or 301/302 (redirect)
               const c = respD ? respD.status() : 0;
               pass = (c >= 200 && c < 300) || HTTP_REDIRECT.includes(c);
@@ -293,8 +288,8 @@ try {
         console.log(`Screenshot captured for failed tests (${failedTestIds.join(',')}): ${screenshotPath}`);
       }
 
-      // Compute "Page Pass?"
-      results[idx]['Page Pass?'] = tests.every(t => ['Pass', 'NA'].includes(results[idx][t['Test ID']]))
+      // Compute "Page Pass?" for tests specified in Test IDs
+      results[idx]['Page Pass?'] = testIds.length === 0 || testIds.every(id => ['Pass', 'NA'].includes(results[idx][id]))
         ? 'Pass' : 'Fail';
 
       console.log(`     ✔ ${(Date.now() - t0) / 1000}s`);
@@ -316,12 +311,13 @@ try {
     const failed = total - passed;
 
     console.log(`\n${passed}/${total} pages passed, ${failed} failed.`);
-    tests.forEach(t => {
-      const f = results.filter(r => r[t['Test ID']] === 'Fail').length;
-      if (f) console.log(`  • ${f} × ${t['Test ID']}  (${t['Description']})`);
+    allTestIds.forEach(id => {
+      const f = results.filter(r => r[id] === 'Fail').length;
+      if (f) console.log(`  • ${f} × ${id}`);
     });
 
     /* Metadata row (row 2) */
+    const metaHdr = ['Run Date', 'Run Time', 'Initiated By', 'Notes'];
     wb.Sheets.Metadata = XLSX.utils.aoa_to_sheet([
       metaHdr,
       [
@@ -337,7 +333,7 @@ try {
     ws['!ref'] = 'A1:A1';                         // clear old table (keep CF)
     for (const k in ws) if (!k.startsWith('!')) delete ws[k];
 
-    const headers = ['URL', ...tests.map(t => t['Test ID']), 'Page Pass?', 'HTTP Status'];
+    const headers = ['URL', ...allTestIds, 'Page Pass?', 'HTTP Status'];
     const aoa = [headers, ...results.map(r => headers.map(h => r[h] ?? ''))];
     XLSX.utils.sheet_add_aoa(ws, aoa, { origin: 0 });
     ws['!ref'] = XLSX.utils.encode_range({
