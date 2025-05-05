@@ -45,21 +45,23 @@ try {
     const wb = XLSX.readFile(inputFile, { cellStyles: true });
     console.log('Sheet names:', wb.SheetNames); // Debug: Log all sheet names
 
-    // Check if "Sheet1" exists (based on GitHub Actions log)
-    const sheetName = 'Sheet1';
-    if (!wb.SheetNames.includes(sheetName)) {
-      console.error(`Sheet "${sheetName}" not found. Available sheets:`, wb.SheetNames);
-      process.exit(1);
+    // Check for required sheets
+    const requiredSheets = ['URLs', 'Tests', 'Metadata', 'Results'];
+    for (const sheet of requiredSheets) {
+      if (!wb.SheetNames.includes(sheet)) {
+        console.error(`Required sheet "${sheet}" not found. Available sheets:`, wb.SheetNames);
+        process.exit(1);
+      }
     }
 
-    // Convert "Sheet1" to JSON
-    const sheet = wb.Sheets[sheetName];
-    const jsonData = XLSX.utils.sheet_to_json(sheet);
-    console.log('First 5 rows of Sheet1:', jsonData.slice(0, 5)); // Debug: Log first 5 rows
+    // Convert "URLs" sheet to JSON
+    const urlSheet = wb.Sheets['URLs'];
+    const urlJsonData = XLSX.utils.sheet_to_json(urlSheet);
+    console.log('First 5 rows of URLs sheet:', urlJsonData.slice(0, 5)); // Debug: Log first 5 rows
 
     // Extract URLs from the "URL" column
     const urls = [...new Set(
-      jsonData.map(row => row['URL']).filter(Boolean)
+      urlJsonData.map(row => row['URL']).filter(Boolean)
     )];
     console.log('Extracted URLs:', urls); // Debug: Log the extracted URLs
 
@@ -68,11 +70,7 @@ try {
       process.exit(1);
     }
 
-    // Check for "Tests" sheet
-    if (!wb.SheetNames.includes('Tests')) {
-      console.error('Sheet "Tests" not found. Available sheets:', wb.SheetNames);
-      process.exit(1);
-    }
+    // Extract tests from the "Tests" sheet
     const tests = XLSX.utils.sheet_to_json(wb.Sheets.Tests);
     console.log('First 5 tests:', tests.slice(0, 5)); // Debug: Log first 5 tests
 
