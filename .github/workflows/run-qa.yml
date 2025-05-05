@@ -11,6 +11,9 @@ on:
       release_id:
         description: ID of the draft release
         required: true
+  # Future scheduling support (commented out for now)
+  # schedule:
+  #   - cron: '0 0 * * *' # Daily at midnight UTC
 
 jobs:
   qa:
@@ -50,20 +53,6 @@ jobs:
       - name: Check input.xlsx exists
         run: ls -l input.xlsx
 
-      # Basic debug of XLSX file
-      - name: Debug XLSX
-        run: |
-          node -e "
-            import XLSX from 'xlsx';
-            const wb = XLSX.readFile('input.xlsx');
-            console.log('Sheet names:', wb.SheetNames);
-            console.log('First 5 rows:', XLSX.utils.sheet_to_json(wb.Sheets['URLs']).slice(0,5));
-          "
-
-      # Enhanced debug of XLSX file
-      - name: Enhanced Debug XLSX
-        run: node debug-xlsx.js input.xlsx
-
       # Run the QA script
       - name: Run QA
         run: node qa-test.js input.xlsx
@@ -75,17 +64,17 @@ jobs:
           name: results-${{ github.run_id }}
           path: results-*.xlsx
 
-      # Log artifact name for clarity
-      - name: Log artifact name
-        run: echo "Results artifact uploaded as: results-${{ github.run_id }}"
-
-      # Upload input.xlsx for debugging
-      - name: Upload input.xlsx for debugging
-        if: always()
+      # Upload screenshots artifact
+      - name: Upload screenshots
         uses: actions/upload-artifact@v4
         with:
-          name: debug-input-xlsx
-          path: input.xlsx
+          name: screenshots-${{ github.run_id }}
+          path: screenshots/*.png
+
+      # Log artifact name for clarity
+      - name: Log artifact name
+        run: |
+          echo "Results artifact uploaded as: results-${{ github.run_id }}"
 
       # Clean up the temporary release
       - name: Delete temp release + asset

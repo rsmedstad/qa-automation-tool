@@ -6,12 +6,14 @@
   • Runs Playwright checks (desktop + mobile)
   • Writes Pass/Fail matrix and fills Metadata
   • Leaves conditional-formatting & column widths intact
+  • Captures screenshots for failed tests
 ───────────────────────────────────────────────────────────────────────────────*/
 
 import os from 'os';
 import XLSX from 'xlsx';
 import { chromium, devices } from 'playwright';
 import fs from 'fs';
+import path from 'path';
 
 try {
   /* everything that follows runs inside an async IIFE so we can use await */
@@ -85,6 +87,12 @@ try {
     });
 
     /*──────────────────────────── 4. Playwright contexts ─────────────────────────*/
+    // Create screenshots directory if it doesn't exist
+    const screenshotDir = 'screenshots';
+    if (!fs.existsSync(screenshotDir)) {
+      fs.mkdirSync(screenshotDir);
+    }
+
     const browser = await chromium.launch();
     const desktopCtx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
     const mobileCtx = await browser.newContext(devices['Pixel 5']);
@@ -124,6 +132,9 @@ try {
       const pageM = await mobileCtx.newPage();
       const respD = await pageD.goto(url, { timeout: 30_000 }).catch(() => null);
       await pageM.goto(url, { timeout: 30_000 }).catch(() => null);
+
+      // Track failed test IDs for this URL
+      const failedTestIds = [];
 
       /* ---------- iterate through every Test ID ---------- */
       for (const t of tests) {
@@ -238,6 +249,20 @@ try {
         }
 
         results[idx][id] = pass ? 'Pass' : 'Fail';
+
+        // If the test failed, add its ID to the list of failed tests for this URL
+        if (!pass) {
+          failedTestIds.push(id);
+        }
+      }
+
+      // If there were any failed tests, capture a full-page screenshot
+      if (failedTestIds.length > 0) {
+        const safeUrl = url.replace(/[^a-zA-Z0-9]/g, '_'); // Sanitize URL for filename
+        const screenshotName = `${safeUrl}-failed-${failedTestIds.join(',')}.png`;
+        const screenshotPath = path.join(screenshotDir, screenshotName);
+        await pageD.screenshot({ path: screenshotPath, fullPage: true });
+        console.log(`Screenshot captured for failed tests (${failedTestIds.join(',')}): ${screenshotPath}`);
       }
 
       results[idx]['Page Pass?'] =
