@@ -5,8 +5,8 @@
   • Reads workbook (URLs / Tests / empty Results + Metadata)
   • Runs Playwright checks (desktop + mobile)
   • Writes Pass/Fail matrix and fills Metadata
-  • Leaves conditional-formatting & column widths intact
   • Captures screenshots for failed tests
+  • Reports HTTP status code for each page, renumbered tests to avoid gaps
 ───────────────────────────────────────────────────────────────────────────────*/
 
 import os from 'os';
@@ -76,12 +76,20 @@ try {
     const tests = XLSX.utils.sheet_to_json(wb.Sheets.Tests);
     console.log('First 5 tests:', tests.slice(0, 5)); // Debug: Log first 5 tests
 
+    // Renumber tests: TC-14 becomes TC-13
+    tests.forEach(test => {
+      if (test['Test ID'] === 'TC-14') {
+        test['Test ID'] = 'TC-13';
+      }
+    });
+
     const metaHdr = ['Run Date', 'Run Time', 'Initiated By', 'Notes'];
 
     /*──────────────────────────── 3. Seed empty results ─────────────────────────*/
     const results = urls.map(u => {
       const row = { URL: u };
-      tests.forEach(t => (row[t['Test ID']] = 'NA'));
+      tests.forEach(t => (row[t['Test ID']] = 'NA')); // Initialize test results as NA
+      row['HTTP Status'] = '-'; // New column for HTTP status
       row['Page Pass?'] = 'Not Run';
       return row;
     });
@@ -130,8 +138,29 @@ try {
 
       const pageD = await desktopCtx.newPage();
       const pageM = await mobileCtx.newPage();
-      const respD = await pageD.goto(url, { timeout: 30_000 }).catch(() => null);
-      await pageM.goto(url, { timeout: 30_000 }).catch(() => null);
+      let respD;
+
+      // Navigate to the URL
+      try {
+        respD = await pageD.goto(url, { timeout: 30000, waitUntil: 'domcontentloaded' });
+      } catch (error) {
+        console.log(`Navigation error for ${url}: ${error.message}`);
+        // Capture screenshot on navigation error
+        const safeUrl = url.replace(/[^a-zA-Z0-9]/g, '_');
+        const screenshotPath = path.join(screenshotDir, `${safeUrl}-navigation-error.png`);
+        await pageD.screenshot({ path: screenshotPath, fullPage: true });
+        console.log(`Screenshot captured on navigation error: ${screenshotPath}`);
+      }
+
+      try {
+        await pageM.goto(url, { timeout: 30000, waitUntil: 'domcontentloaded' });
+      } catch (error) {
+        console.log(`Mobile navigation error for ${url}: ${error.message}`);
+      }
+
+      // Record HTTP status (formerly TC-13)
+      const httpStatus = respD ? respD.status() : 'N/A';
+      results[idx]['HTTP Status'] = httpStatus;
 
       // Track failed test IDs for this URL
       const failedTestIds = [];
@@ -148,7 +177,7 @@ try {
             /* ##### Layout sanity checks ########################################*/
             case 'TC-01': { // desktop hero has an absolutely-positioned child
               await pageD.waitForSelector('section.ge-homepage-hero-v2-component',
-                                          { timeout: 10_000 });
+                                          { timeout: 10000 });
               pass = await pageD.evaluate(() => {
                 const hero = document.querySelector('section.ge-homepage-hero-v2-component');
                 return hero && [...hero.querySelectorAll('*')]
@@ -192,12 +221,12 @@ try {
               // (c) wait for modal wrapper, then Vidyard iframe
               const modal = await pageD.waitForSelector(
                               'div.ge-modal-window, div.ge-modal-window-wrapper',
-                              { timeout: 15_000 }).catch(() => null);
+                              { timeout: 15000 }).catch(() => null);
               if (!modal) { results[idx][id] = 'NA'; break; }
 
               pass = await pageD.waitForSelector(
                        'div.vidyard-player-container, iframe[src*="play.vidyard.com"]',
-                       { timeout: 15_000 }).then(() => true).catch(() => false);
+                       { timeout: 15000 }).then(() => true).catch(() => false);
               break;
             }
 
@@ -205,11 +234,11 @@ try {
             case 'TC-08': { // "Contact us" button brings up a form
               const before = (await pageD.$$('form')).length;
               await pageD.waitForSelector('button.ge-contact-us-button__contactus-action-button',
-                                          { timeout: 10_000 });
+                                          { timeout: 10000 });
               await pageD.click('button.ge-contact-us-button__contactus-action-button');
               pass = await pageD.waitForFunction(
                        prev => document.querySelectorAll('form').length > prev,
-                       before, { timeout: 10_000 }
+                       before, { timeout: 10000 }
                      ).then(() => true).catch(() => false);
               break;
             }
@@ -225,17 +254,16 @@ try {
               await pageD.click('span.ge-cdx-header-redesign__nav-menu-item__nav-link:has-text("Produkte")');
               await pageD.click('div.menu-content-container-item-data:has-text("Ultraschall")');
               const more = await pageD.waitForSelector('a:has-text("Mehr erfahren")',
-                                                       { timeout: 10_000 });
-              await Promise.all([pageD.waitForNavigation({ timeout: 10_000 }), more.click()]);
+                                                       { timeout: 10000 });
+              await Promise.all([pageD.waitForNavigation({ timeout: 10000 }), more.click()]);
               const dest = pageD.url();
               pass = dest.startsWith('https://www.ge-ultraschall.com/') ||
                      dest.startsWith('https://gehealthcare-ultrasound.com/');
               break;
             }
 
-            /* ##### Basic HTTP sanity ###########################################*/
-            case 'TC-13': pass = !!respD && respD.status() === 200; break;       // Check if HTTP status is 200 (OK)
-            case 'TC-14': {                                                      // Check if HTTP status is 2xx (success) or 301/302 (redirect)
+            /* ##### Basic HTTP sanity (renumbered from TC-14 to TC-13) ##########*/
+            case 'TC-13': {                                                      // Check if HTTP status is 2xx (success) or 301/302 (redirect)
               const c = respD ? respD.status() : 0;
               pass = (c >= 200 && c < 300) || HTTP_REDIRECT.includes(c);
               break;
@@ -265,9 +293,9 @@ try {
         console.log(`Screenshot captured for failed tests (${failedTestIds.join(',')}): ${screenshotPath}`);
       }
 
-      results[idx]['Page Pass?'] =
-      tests.every(t => ['Pass', 'NA'].includes(results[idx][t['Test ID']]))
-      ? 'Pass' : 'Fail';
+      // Compute "Page Pass?"
+      results[idx]['Page Pass?'] = tests.every(t => ['Pass', 'NA'].includes(results[idx][t['Test ID']]))
+        ? 'Pass' : 'Fail';
 
       console.log(`     ✔ ${(Date.now() - t0) / 1000}s`);
       await pageD.close();
@@ -309,7 +337,7 @@ try {
     ws['!ref'] = 'A1:A1';                         // clear old table (keep CF)
     for (const k in ws) if (!k.startsWith('!')) delete ws[k];
 
-    const headers = ['URL', ...tests.map(t => t['Test ID']), 'Page Pass?'];
+    const headers = ['URL', ...tests.map(t => t['Test ID']), 'Page Pass?', 'HTTP Status'];
     const aoa = [headers, ...results.map(r => headers.map(h => r[h] ?? ''))];
     XLSX.utils.sheet_add_aoa(ws, aoa, { origin: 0 });
     ws['!ref'] = XLSX.utils.encode_range({
