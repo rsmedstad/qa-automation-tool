@@ -1,107 +1,67 @@
-QA Testing for GE Healthcare Websites
-This document outlines the automated QA testing process for GE Healthcare websites using the qa-test.js script and input.xlsx file. The script runs Playwright tests on specified URLs and generates a results spreadsheet (results-*.xlsx).
-Test Definitions
-The following tests are applied to URLs based on the "Test IDs" column in the "URLs" tab of input.xlsx. Each URL specifies which tests to run by listing the relevant Test IDs (e.g., "TC-01,TC-03,TC-05").
+# GEHC QA Testing
 
+This repository provides an automated QA testing tool using the `qa-test.js` script and an `input.xlsx` file. The tool runs Playwright-based tests on specified URLs and generates an output spreadsheet (`results-*.xlsx`) summarizing the results.
 
+---
 
-Test ID
-Description
-Test Method
+## 🧪 Test Definitions
 
+Each URL in the `input.xlsx` file specifies one or more tests to run using the **Test IDs** column in the **"URLs"** tab. Use a comma-separated list (e.g., `TC-01,TC-03,TC-05`) to indicate which tests to apply.
 
+| **Test ID** | **Description**                         | **Test Method** |
+|-------------|-----------------------------------------|-----------------|
+| **TC-01**   | Hero overlay on desktop                 | Check `div[id*="ge-homepage-hero"] div[style]` for `position:absolute` in a headless desktop browser (1280×800). |
+| **TC-02**   | Hero below banner on mobile             | Ensure same element **does not** have `position:absolute` using a mobile browser (Pixel 5). |
+| **TC-03**   | Header presence                         | Look for `<header>` or `div[class*="header"]` in desktop context. |
+| **TC-04**   | Nav presence                            | Look for `<nav>` or `div[class*="nav"]` in desktop context. |
+| **TC-05**   | Main content presence                   | Look for `<main>` or `div[class*="main"]` in desktop context. |
+| **TC-06**   | Footer presence                         | Look for `<footer>` or `div[class*="footer"]` in desktop context. |
+| **TC-07**   | Main video (Vidyard) present            | Check for `<iframe src*="vidyard">` or `<video>` in desktop context. |
+| **TC-08**   | Contact-Us form overlay loads           | Click `button.button--primary` or `.ge-contact-us-button__contactus-action-button`, then confirm overlay form appears. |
+| **TC-09**   | Declared Rendering Error                | Check if the page content contains the text "A rendering error occurred." If not found, the test passes. |
+| **TC-10**   | Gatekeeper interstitial appears         | Load page with no cookies, confirm redirect with `/gatekeeper?` in URL. |
+| **TC-11**   | Insights first article link works       | Click first link inside `div[class*="insights-list"] a`, await navigation, check for HTTP 200. |
+| **TC-12**   | DocCheck login redirect for gated pages | Load gated page without cookies, confirm URL includes `/account/doccheck-login`. |
+| **TC-13**   | DE nav-link redirect (301)              | Click `text=Mehr erfahren` on DE homepage, confirm redirect to `https://www.ge-ultraschall.com/`. |
+| **TC-14**   | Status code validation                  | Ensure HTTP status is 200 or a valid/expected redirect (301/302). |
 
-TC-01
-Hero overlay on desktop
-In a headless desktop browser (1280×800 UA), select div[id*="ge-homepage-hero"] div[style] and verify its style contains position:absolute.
+---
 
+## ⚙️ Running the QA Tests
 
-TC-02
-Hero below banner on mobile
-In a headless mobile browser (Pixel 5 UA), select the same div[id*="ge-homepage-hero"] div[style] and verify its style does not contain position:absolute.
+### 1. **Prepare `input.xlsx`**
+- Open the **"URLs"** tab.
+- Ensure columns: `URL`, `Region`, and `Test IDs` exist.
+- In **"Test IDs"**, list which tests to run per URL (e.g., `TC-01,TC-03`).
 
+### 2. **Trigger the Workflow**
+- Use the `run-qa.yml` GitHub Actions workflow.
+- Upload the updated `input.xlsx`.
+- The script runs selected tests and generates:
+  - `results-<run_id>.xlsx`
+  - `screenshots-<run_id>` (only on failure)
 
-TC-03
-Header presence
-In desktop context, check for any <header> tag or <div> whose class includes "header" via page.$('header, div[class*="header"]').
+### 3. **Review Results**
+- Download `results-<run_id>` from GitHub Actions artifacts.
+- Open the **"Results"** sheet to view:
+  - Test outcomes
+  - HTTP status
+  - Pass/fail summary
+- Check `screenshots-<run_id>` for images of failed tests.
 
+---
 
-TC-04
-Nav presence
-In desktop context, check for any <nav> tag or <div> whose class includes "nav" via page.$('nav, div[class*="nav"]').
+## 🔧 Adjusting the Test Scope
 
+To change which tests apply to a specific URL:
 
-TC-05
-Main content presence
-In desktop context, check for any <main> tag or <div> whose class includes "main" via page.$('main, div[class*="main"]').
+1. Edit the **"Test IDs"** column in the `URLs` tab of `input.xlsx`.
+2. Specify desired test cases, e.g.: TC-01,TC-03
 
+---
 
-TC-06
-Footer presence
-In desktop context, check for any <footer> tag or <div> whose class includes "footer" via page.$('footer, div[class*="footer"]').
+## 🔍 For More Detail
 
-
-TC-07
-Main video (Vidyard) present
-In desktop context, check for <iframe[src*="vidyard"] or <video> via page.$('iframe[src*="vidyard"], video').
-
-
-TC-08
-Contact-Us form overlay loads
-In desktop context, click button.button--primary, button.ge-contact-us-button__contactus-action-button, then verify div.ge-contact-us-button__overlay-container form exists.
-
-
-TC-09
-Gatekeeper interstitial appears
-Load the page without cookies, then verify page.url().includes('/gatekeeper?') to confirm the Gatekeeper redirect.
-
-
-TC-10
-Insights first article link works
-On the insights listing, click the first link div[class*="insights-list"] a, await navigation, and verify the new page loads with HTTP 200.
-
-
-TC-11
-DocCheck login redirect for gated pages
-Load each gated URL without cookies and verify page.url().includes('/account/doccheck-login') to confirm DocCheck redirect.
-
-
-TC-12
-DE nav-link redirect (301)
-On the DE homepage, click text=Mehr erfahren, await redirect, and verify page.url().startsWith('https://www.ge-ultraschall.com/').
-
-
-TC-13
-Confirms 200 status page for results except for 301/302 redirects that were expected
-If not 200 status, ensure expected for URL (e.g., 2xx or 301/302 redirects).
-
-
-Running the QA Tests
-
-Prepare input.xlsx:
-
-Ensure the "URLs" tab contains columns: "URL," "Region," and "Test IDs."
-List the applicable test IDs for each URL in the "Test IDs" column (e.g., "TC-01,TC-03,TC-05").
-
-
-Run the Workflow:
-
-Trigger the GitHub Actions workflow (run-qa.yml) with the updated input.xlsx.
-The script will run the specified tests for each URL and generate a results-*.xlsx file.
-
-
-Review Results:
-
-Download the results-<run_id> artifact from GitHub Actions.
-Check the "Results" sheet for test outcomes, HTTP status, and overall pass/fail status.
-If any tests fail, review the screenshots-<run_id> artifact for screenshots of failed tests.
-
-
-
-Adjusting Test Scope
-To adjust which tests run for a specific URL:
-
-Edit the "Test IDs" column in the "URLs" tab of input.xlsx.
-For example, to run only TC-01 and TC-03 for a URL, set "Test IDs" to "TC-01,TC-03".
-
-For more details, refer to the qa-test.js script and run-qa.yml workflow configuration.
+Refer to:
+- [`qa-test.js`](./qa-test.js) — Contains the Playwright test logic.
+- [`run-qa.yml`](./.github/workflows/run-qa.yml) — GitHub Actions workflow configuration.
