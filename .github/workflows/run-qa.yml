@@ -75,6 +75,10 @@ jobs:
           name: results-${{ github.run_id }}
           path: results-*.xlsx
 
+      # Log artifact name for clarity
+      - name: Log artifact name
+        run: echo "Results artifact uploaded as: results-${{ github.run_id }}"
+
       # Upload input.xlsx for debugging
       - name: Upload input.xlsx for debugging
         if: always()
