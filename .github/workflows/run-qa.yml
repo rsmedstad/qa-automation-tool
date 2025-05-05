@@ -6,7 +6,7 @@ on:
         description: Secret phrase
         required: true
       asset_id:
-        description: ID of draft‑release asset (input.xlsx)
+        description: ID of draft-release asset (input.xlsx)
         required: true
       release_id:
         description: ID of the draft release
@@ -16,66 +16,79 @@ jobs:
   qa:
     runs-on: ubuntu-latest
     steps:
-    - name: Validate pass‑phrase
-      run: |
-        if [ "${{ inputs.passphrase }}" != "${{ secrets.QA_PASSPHRASE }}" ]; then
-          echo "::error ::Incorrect pass‑phrase"; exit 1; fi
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20'
 
-    - uses: actions/checkout@v4
+      - name: Validate pass-phrase
+        run: |
+          if [ "${{ inputs.passphrase }}" != "${{ secrets.QA_PASSPHRASE }}" ]; then
+            echo "::error ::Incorrect pass-phrase"; exit 1; fi
 
-    - name: Install deps
-      run: npm ci
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    # 1️⃣ download the XLSX -----------------------------------------------
-    - name: Download input asset
-      env:
-        GH_PAT: ${{ secrets.GH_PAT }}
-      run: |
-        curl -L \
-          -H "Authorization: Bearer $GH_PAT" \
-          -H "Accept: application/octet-stream" \
-          "https://api.github.com/repos/${{ github.repository }}/releases/assets/${{ inputs.asset_id }}" \
-          -o input.xlsx
+      - name: Install dependencies
+        run: npm ci
 
-    # 2️⃣ run the crawler --------------------------------------------------
-    - name: Run QA
-      run: node qa-test.js input.xlsx
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps
 
-    # 3️⃣ upload results ---------------------------------------------------
-    - uses: actions/upload-artifact@v4
-      with:
-        name: results-${{ github.run_id }}
-        path: results-*.xlsx
+      # Download the XLSX file
+      - name: Download input asset
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+        run: |
+          curl -L \
+            -H "Authorization: Bearer $GH_PAT" \
+            -H "Accept: application/octet-stream" \
+            "https://api.github.com/repos/${{ github.repository }}/releases/assets/${{ inputs.asset_id }}" \
+            -o input.xlsx
 
-    # 4️⃣ clean up the temp release ---------------------------------------
-    - name: Delete temp release + asset
-      if: always()
-      env:
-        GH_PAT: ${{ secrets.GH_PAT }}
-      run: |
-        # delete release (also deletes asset)
-        curl -X DELETE \
-          -H "Authorization: Bearer $GH_PAT" \
-          "https://api.github.com/repos/${{ github.repository }}/releases/${{ inputs.release_id }}"
+      # Verify file presence
+      - name: Check input.xlsx exists
+        run: ls -l input.xlsx
 
-    - name: List files in workspace
-      run: ls -l
+      # Basic debug of XLSX file
+      - name: Debug XLSX
+        run: |
+          node -e "
+            import XLSX from 'xlsx';
+            const wb = XLSX.readFile('input.xlsx');
+            console.log('Sheet names:', wb.SheetNames);
+            console.log('First 5 rows:', XLSX.utils.sheet_to_json(wb.Sheets['URLs']).slice(0,5));
+          "
 
-    - name: Check input.xlsx exists
-      run: file input.xlsx
+      # Enhanced debug of XLSX file
+      - name: Enhanced Debug XLSX
+        run: node debug-xlsx.js input.xlsx
 
-    - name: Debug XLSX
-      run: |
-        node -e "
-          import XLSX from 'xlsx';
-          const wb = XLSX.readFile('input.xlsx');
-          console.log('Sheet names:', wb.SheetNames);
-          console.log('First 5 rows:', XLSX.utils.sheet_to_json(wb.Sheets.URLs).slice(0,5));
-        "
-    - name: Enhanced Debug XLSX
-      run: node debug-xlsx.js input.xlsx
+      # Run the QA script
+      - name: Run QA
+        run: node qa-test.js input.xlsx
 
-    - uses: actions/upload-artifact@v4
-      with:
-        name: debug-input-xlsx
-        path: input.xlsx
+      # Upload results artifact
+      - name: Upload QA results
+        uses: actions/upload-artifact@v4
+        with:
+          name: results-${{ github.run_id }}
+          path: results-*.xlsx
+
+      # Upload input.xlsx for debugging
+      - name: Upload input.xlsx for debugging
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-input-xlsx
+          path: input.xlsx
+
+      # Clean up the temporary release
+      - name: Delete temp release + asset
+        if: always()
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+        run: |
+          curl -X DELETE \
+            -H "Authorization: Bearer $GH_PAT" \
+            "https://api.github.com/repos/${{ github.repository }}/releases/${{ inputs.release_id }}"
