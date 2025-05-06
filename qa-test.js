@@ -5,7 +5,7 @@
   • Reads workbook (URLs / empty Results + Metadata)
   • Runs Playwright checks (desktop + mobile) based on Test IDs specified per URL
   • Writes Pass/Fail matrix and fills Metadata
-  • Captures screenshots for failed tests
+  • Captures screenshots for failed tests with enhanced logging
   • Includes TC-09: Declared Rendering Error
   • Test definitions are documented in README.md
 ───────────────────────────────────────────────────────────────────────────────*/
@@ -160,13 +160,14 @@ try {
       // Navigate to the URL in the desktop context
       try {
         respD = await pageD.goto(url, { timeout: 30000, waitUntil: 'domcontentloaded' });
+        console.log(`Page loaded for ${url}, status: ${respD.status()}`);
       } catch (error) {
         console.log(`Navigation error for ${url}: ${error.message}`);
         // Capture screenshot on navigation error
         const safeUrl = url.replace(/[^a-zA-Z0-9]/g, '_');
         const screenshotPath = path.join(screenshotDir, `${safeUrl}-navigation-error.png`);
-        await pageD.screenshot({ path: screenshotPath, fullPage: true });
-        console.log(`Screenshot captured on navigation error: ${screenshotPath}`);
+        await pageD.screenshot({ path: screenshotPath, fullPage: true }).catch(err => console.error(`Screenshot failed for navigation error: ${err.message}`));
+        console.log(`Screenshot attempted for navigation error: ${screenshotPath}`);
       }
 
       // Navigate to the URL in the mobile context
@@ -312,13 +313,33 @@ try {
         }
       }
 
-      // If there were any failed tests, capture a full-page screenshot
+      // If there were any failed tests, capture a full-page screenshot with debug logic
       if (failedTestIds.length > 0) {
         const safeUrl = url.replace(/[^a-zA-Z0-9]/g, '_'); // Sanitize URL for filename
         const screenshotName = `${safeUrl}-failed-${failedTestIds.join(',')}.png`;
         const screenshotPath = path.join(screenshotDir, screenshotName);
-        await pageD.screenshot({ path: screenshotPath, fullPage: true });
-        console.log(`Screenshot captured for failed tests (${failedTestIds.join(',')}): ${screenshotPath}`);
+
+        // Log before capturing screenshot
+        console.log(`Attempting to capture screenshot for failed tests: ${failedTestIds.join(',')} at ${screenshotPath}`);
+
+        try {
+          // Wait for the page to be fully loaded before capturing
+          await pageD.waitForLoadState('networkidle', { timeout: 30000 });
+
+          // Check if the page has content
+          const pageContent = await pageD.content();
+          if (pageContent.trim() === '') {
+            console.log(`Page content is empty for ${url}`);
+          } else {
+            console.log(`Page content length: ${pageContent.length} for ${url}`);
+          }
+
+          // Capture the screenshot
+          await pageD.screenshot({ path: screenshotPath, fullPage: true });
+          console.log(`Screenshot captured successfully: ${screenshotPath}`);
+        } catch (error) {
+          console.error(`Failed to capture screenshot for ${url}: ${error.message}`);
+        }
       }
 
       // Compute "Page Pass?" for tests specified in Test IDs
