@@ -6,9 +6,14 @@
     "qa-test": "qa-test.js"
   },
   "dependencies": {
+    "@azure/storage-blob": "^12.27.0",
     "@octokit/core": "^6.1.5",
+    "@vercel/blob": "^1.0.1",
+    "@vercel/kv": "^3.0.0",
+    "chart.js": "^4.4.9",
     "formidable": "^3.5.4",
-    "playwright": "^1.40.0",
+    "openai": "^4.97.0",
+    "playwright": "^1.52.0",
     "xlsx": "^0.18.0"
   },
   "main": "qa-test.js",

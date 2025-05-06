@@ -1,19 +1,19 @@
-name: Run QA now
+name: Run QA Tests
+
 on:
+  schedule:
+    - cron: '0 */3 * * *'  # Runs every 3 hours
   workflow_dispatch:
     inputs:
+      initiator:
+        description: 'Name of the person initiating the test'
+        required: true
+      file_url:
+        description: 'URL to the input.xlsx file'
+        required: true
       passphrase:
-        description: Secret phrase
+        description: 'Secret phrase'
         required: true
-      asset_id:
-        description: ID of draft-release asset (input.xlsx)
-        required: true
-      release_id:
-        description: ID of the draft release
-        required: true
-  # Future scheduling support (commented out for now)
-  # schedule:
-  #   - cron: '0 0 * * *' # Daily at midnight UTC
 
 jobs:
   qa:
@@ -24,7 +24,8 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Validate pass-phrase
+      - name: Validate pass-phrase for manual runs
+        if: github.event_name == 'workflow_dispatch'
         run: |
           if [ "${{ inputs.passphrase }}" != "${{ secrets.QA_PASSPHRASE }}" ]; then
             echo "::error ::Incorrect pass-phrase"; exit 1; fi
@@ -38,50 +39,55 @@ jobs:
       - name: Install Playwright browsers
         run: npx playwright install --with-deps
 
-      # Download the XLSX file
-      - name: Download input asset
-        env:
-          GH_PAT: ${{ secrets.GH_PAT }}
+      - name: Download input file for ad-hoc run
+        if: github.event_name == 'workflow_dispatch'
         run: |
-          curl -L \
-            -H "Authorization: Bearer $GH_PAT" \
-            -H "Accept: application/octet-stream" \
-            "https://api.github.com/repos/${{ github.repository }}/releases/assets/${{ inputs.asset_id }}" \
-            -o input.xlsx
+          curl -L -o input.xlsx "${{ inputs.file_url }}"
 
-      # Verify file presence
-      - name: Check input.xlsx exists
-        run: ls -l input.xlsx
+      - name: Set initiator
+        run: |
+          if [ "${{ github.event_name }}" == "schedule" ]; then
+            echo "INITIATOR=scheduled" >> $GITHUB_ENV
+          else
+            echo "INITIATOR=${{ inputs.initiator }}" >> $GITHUB_ENV
+          fi
 
-      # Run the QA script
-      - name: Run QA
-        run: node qa-test.js input.xlsx
+      - name: Run QA test
+        run: |
+          node api/qa-test.js input.xlsx results-${{ github.run_id }}.xlsx "${{ env.INITIATOR }}"
 
-      # Upload results artifact
-      - name: Upload QA results
+      - name: Capture test summary
+        run: |
+          SUMMARY=$(tail -n 1 results.txt)
+          echo "SUMMARY=$SUMMARY" >> $GITHUB_ENV
+
+      - name: Send summary to Vercel
+        env:
+          VERCEL_URL: "https://gehc-cmc-testing.vercel.app"  # Replace with your Vercel app URL
+        run: |
+          curl -X POST "$VERCEL_URL/api/store-run" \
+               -H "Content-Type: application/json" \
+               -d '{
+                 "runId": "${{ github.run_id }}",
+                 "crawlName": "QA Run ${{ github.run_id }}",
+                 "date": "${{ github.event.head_commit.timestamp || github.event.workflow_run.created_at }}",
+                 "successCount": '"$(echo $SUMMARY | jq '.success')"',
+                 "failureCount": '"$(echo $SUMMARY | jq '.failure')"',
+                 "initiator": "${{ env.INITIATOR }}"
+               }'
+
+      - name: Upload results artifact
         uses: actions/upload-artifact@v4
         with:
           name: results-${{ github.run_id }}
           path: results-*.xlsx
 
-      # Upload screenshots artifact
-      - name: Upload screenshots
+      - name: Upload screenshots artifact
         uses: actions/upload-artifact@v4
         with:
           name: screenshots-${{ github.run_id }}
           path: screenshots/*.png
 
-      # Log artifact name for clarity
       - name: Log artifact name
         run: |
           echo "Results artifact uploaded as: results-${{ github.run_id }}"
-
-      # Clean up the temporary release
-      - name: Delete temp release + asset
-        if: always()
-        env:
-          GH_PAT: ${{ secrets.GH_PAT }}
-        run: |
-          curl -X DELETE \
-            -H "Authorization: Bearer $GH_PAT" \
-            "https://api.github.com/repos/${{ github.repository }}/releases/${{ inputs.release_id }}"

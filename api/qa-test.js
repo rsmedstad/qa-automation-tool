@@ -7,6 +7,7 @@
   • Writes Pass/Fail matrix and fills Metadata
   • Captures screenshots for failed tests with enhanced logging
   • Includes TC-09: Declared Rendering Error
+  • Outputs success and failure counts as JSON for workflow capture
   • Test definitions are documented in README.md
 ───────────────────────────────────────────────────────────────────────────────*/
 
@@ -22,14 +23,11 @@ try {
     /*──────────────────────────── 1. CLI / filenames ─────────────────────────────*/
     // Step 1: Parse command-line arguments for input file, output file, and initiator
     console.log('Starting QA test script');
-    const [,, inputFile, maybeOut, maybeBy] = process.argv;
-    if (!inputFile) {
-      console.error('Usage: node qa-test.js <input.xlsx> [output.xlsx] [Initiated By]');
+    const [,, inputFile, outputFile, initiatedBy] = process.argv;
+    if (!inputFile || !outputFile || !initiatedBy) {
+      console.error('Usage: node api/qa-test.js <input.xlsx> <output.xlsx> <Initiated By>');
       process.exit(1);
     }
-    const initiatedBy = maybeBy || os.userInfo().username;
-    const outputFile = maybeOut ||
-      `results-${new Date().toISOString().replace(/[:.]/g, '-')}-${initiatedBy}.xlsx`;
 
     console.log(`\n▶ Workbook  : ${inputFile}`);
     console.log(`▶ Output    : ${outputFile}`);
@@ -400,6 +398,11 @@ try {
 
     XLSX.writeFile(wb, outputFile, { bookType: 'xlsx', cellStyles: true });
     console.log(`\n✅ Results saved → ${outputFile}\n`);
+
+    // Step 10: Output summary as JSON for workflow to capture
+    const summary = { success: passed, failure: failed };
+    fs.writeFileSync('results.txt', JSON.stringify(summary)); // Write to file for workflow
+    console.log(JSON.stringify(summary));
     process.exit(0);
   })();
 } catch (error) {
