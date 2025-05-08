@@ -1,4 +1,4 @@
-# GEHC QA Testing
+# QA Automation Tool
 
 This repository provides an automated QA testing tool using the `qa-test.js` script and an `input.xlsx` file. The tool runs Playwright-based tests on specified URLs and generates an output spreadsheet (`results-*.xlsx`) summarizing the results.
 
