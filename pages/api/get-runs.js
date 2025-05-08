@@ -1,13 +1,14 @@
-const { Octokit } = require('@octokit/rest');
-const fetch = require('node-fetch');
-const AdmZip = require('adm-zip');
-
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
     return res.status(405).json({ message: 'Method not allowed' });
   }
 
   try {
+    // Dynamically import ES modules
+    const { Octokit } = await import('@octokit/rest');
+    const fetch = (await import('node-fetch')).default;
+    const AdmZip = (await import('adm-zip')).default;
+
     const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
     console.log('Fetching workflow runs...');
     const { data } = await octokit.actions.listWorkflowRuns({

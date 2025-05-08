@@ -7,7 +7,7 @@
   • Writes results and preserves all input columns (e.g., Region) in output.xlsx
   • Captures screenshots for failed tests with improved timing to avoid blank images
   • Includes TC-09: Declared Rendering Error
-  • Outputs success/failure counts as JSON
+  • Outputs success/failure counts as JSON and logs summary for workflow capture
   • Test definitions in README.md
 ───────────────────────────────────────────────────────────────────────────────*/
 
@@ -312,8 +312,15 @@ try {
     console.log(`\n✅ Results saved → ${outputFile}\n`);
 
     // Summary JSON for Dashboarding
-    const summary = { passed, failed, na: results.filter(r => r['Page Pass?'] === 'Not Run').length };
+    const summary = { 
+      passed, 
+      failed, 
+      na: results.filter(r => r['Page Pass?'] === 'Not Run').length,
+      total: total // Added total for workflow compatibility
+    };
     fs.writeFileSync('summary.json', JSON.stringify(summary));
+    console.log('Summary:', JSON.stringify(summary)); // Log summary for workflow capture
+
     process.exit(0);
   })();
 } catch (error) {

@@ -58,10 +58,15 @@ jobs:
 
       - name: Capture test summary and create summary.json
         run: |
-          SUMMARY=$(tail -n 1 results.txt)
-          echo "SUMMARY=$SUMMARY" >> $GITHUB_ENV
-          # Assuming results.txt has JSON with success, failure, na keys
-          echo "$SUMMARY" | jq '{ "passed": .success, "failed": .failure, "na": (.total - .success - .failure) }' > summary.json
+          # Read summary.json directly
+          if [ -f summary.json ]; then
+            SUMMARY=$(cat summary.json)
+            echo "SUMMARY=$SUMMARY" >> $GITHUB_ENV
+            echo "Summary captured: $SUMMARY"
+          else
+            echo "summary.json not found"
+            exit 1
+          fi
 
       - name: Upload summary JSON artifact
         uses: actions/upload-artifact@v4
@@ -71,7 +76,7 @@ jobs:
 
       - name: Send summary to Vercel
         env:
-          VERCEL_URL: "https://qa-automation-tool.vercel.app"  # Replace with your Vercel app URL
+          VERCEL_URL: "https://qa-automation-tool.vercel.app"
         run: |
           curl -X POST "$VERCEL_URL/api/store-run" \
                -H "Content-Type: application/json" \
@@ -79,8 +84,8 @@ jobs:
                  "runId": "${{ github.run_id }}",
                  "crawlName": "QA Run ${{ github.run_id }}",
                  "date": "${{ github.event.head_commit.timestamp || github.event.workflow_run.created_at }}",
-                 "successCount": '"$(echo $SUMMARY | jq '.success')"',
-                 "failureCount": '"$(echo $SUMMARY | jq '.failure')"',
+                 "successCount": '"$(echo $SUMMARY | jq '.passed')"',
+                 "failureCount": '"$(echo $SUMMARY | jq '.failed')"',
                  "initiator": "${{ env.INITIATOR }}"
                }'
 
