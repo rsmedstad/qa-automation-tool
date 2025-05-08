@@ -2,13 +2,13 @@
 /*───────────────────────────────────────────────────────────────────────────────
   qa-test.js
   ----------
-  • Reads workbook (URLs / empty Results + Metadata) using exceljs
-  • Runs Playwright checks (desktop + mobile) based on Test IDs specified per URL
-  • Writes Pass/Fail matrix and fills Metadata
-  • Captures screenshots for failed tests with enhanced logging
+  • Reads URLs and associated data from input.xlsx using exceljs
+  • Runs Playwright checks based on Test IDs per URL
+  • Writes results and preserves all input columns (e.g., Region) in output.xlsx
+  • Captures screenshots for failed tests with improved timing to avoid blank images
   • Includes TC-09: Declared Rendering Error
-  • Outputs success and failure counts as JSON for workflow capture
-  • Test definitions are documented in README.md
+  • Outputs success/failure counts as JSON
+  • Test definitions in README.md
 ───────────────────────────────────────────────────────────────────────────────*/
 
 import os from 'os';
@@ -18,10 +18,8 @@ import fs from 'fs';
 import path from 'path';
 
 try {
-  /* everything that follows runs inside an async IIFE so we can use await */
   (async () => {
     /*──────────────────────────── 1. CLI / filenames ─────────────────────────────*/
-    // Step 1: Parse command-line arguments for input file, output file, and initiator
     console.log('Starting QA test script');
     const [,, inputFile, outputFile, initiatedBy] = process.argv;
     if (!inputFile || !outputFile || !initiatedBy) {
@@ -33,100 +31,88 @@ try {
     console.log(`▶ Output    : ${outputFile}`);
     console.log(`▶ Initiated : ${initiatedBy}\n`);
 
-    /*──────────────────────────── 2. Load workbook data ──────────────────────────*/
-    // Step 2: Load the input Excel file using exceljs
-    console.log('Reading Excel file with exceljs...');
-    const workbook = new ExcelJS.Workbook();
-    await workbook.xlsx.readFile(inputFile);
+    /*──────────────────────────── 2. Load URL data dynamically ───────────────────*/
+    console.log('Reading URLs and data from Excel file...');
+    const inputWorkbook = new ExcelJS.Workbook();
+    await inputWorkbook.xlsx.readFile(inputFile);
 
-    // Check for required sheets: URLs, Metadata, Results
-    const requiredSheets = ['URLs', 'Metadata', 'Results'];
-    for (const sheet of requiredSheets) {
-      if (!workbook.getWorksheet(sheet)) {
-        console.error(`Required sheet "${sheet}" not found. Available sheets:`, workbook.worksheets.map(ws => ws.name));
-        process.exit(1);
-      }
+    const urlSheet = inputWorkbook.getWorksheet('URLs');
+    if (!urlSheet) {
+      console.error('Sheet "URLs" not found in input.xlsx.');
+      process.exit(1);
     }
 
-    // Convert "URLs" sheet to JSON format
-    const urlSheet = workbook.getWorksheet('URLs');
+    // Read header row to identify columns
+    const headerRow = urlSheet.getRow(1);
+    const headers = headerRow.values.slice(1); // Skip first empty cell
+    console.log('Headers:', headers);
+
+    // Find the index of "Test IDs" column (case-insensitive)
+    const testIdsIndex = headers.findIndex(h => h && h.toString().toLowerCase() === 'test ids');
+    if (testIdsIndex === -1) {
+      console.error('Column "Test IDs" not found in URLs sheet.');
+      process.exit(1);
+    }
+
     const urlJsonData = [];
     urlSheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
-      if (rowNumber === 1) return; // Skip header row
-      urlJsonData.push({
-        URL: row.getCell(1).value,
-        'Test IDs': row.getCell(2).value
+      if (rowNumber === 1) return; // Skip header
+      const rowData = {};
+      headers.forEach((header, index) => {
+        rowData[header] = row.getCell(index + 1).value;
       });
+      urlJsonData.push(rowData);
     });
-    console.log('First 5 rows of URLs sheet:', urlJsonData.slice(0, 5)); // Debug: Log first 5 rows
+    console.log('First 5 rows of URLs sheet:', urlJsonData.slice(0, 5));
 
-    // Extract URLs and their specified test IDs
     const urls = urlJsonData.map(row => ({
       url: row['URL'],
-      testIds: (row['Test IDs'] || '').split(',').map(id => id.trim()).filter(Boolean)
+      testIds: (row[headers[testIdsIndex]] || '').split(',').map(id => id.trim()).filter(Boolean),
+      data: row // Store all column data
     }));
-    console.log('Extracted URLs with Test IDs:', urls); // Debug: Log the extracted URLs and test IDs
+    console.log('Extracted URLs with Test IDs and data:', urls);
 
     if (!urls.length) {
       console.error('No URLs found.');
       process.exit(1);
     }
 
-    // Define all possible test IDs (updated with new TC-09 and renumbered tests)
     const allTestIds = [
       'TC-01', 'TC-02', 'TC-03', 'TC-04', 'TC-05', 'TC-06', 'TC-07', 'TC-08',
       'TC-09', 'TC-10', 'TC-11', 'TC-12', 'TC-13', 'TC-14'
     ];
 
-    /*──────────────────────────── 3. Seed empty results ─────────────────────────*/
-    // Step 3: Initialize results array with default values for each URL
+    /*──────────────────────────── 3. Seed results with all columns ───────────────*/
     const results = urls.map(u => {
-      const row = { URL: u.url };
-      allTestIds.forEach(id => (row[id] = 'NA')); // Initialize all test results as NA
-      row['HTTP Status'] = '-'; // Column for HTTP status
+      const row = { ...u.data }; // Include all input columns (e.g., Region)
+      allTestIds.forEach(id => (row[id] = 'NA'));
+      row['HTTP Status'] = '-';
       row['Page Pass?'] = 'Not Run';
       return row;
     });
 
-    /*──────────────────────────── 4. Playwright contexts ─────────────────────────*/
-    // Step 4: Set up Playwright browser contexts for desktop and mobile testing
+    /*──────────────────────────── 4. Playwright setup ───────────────────────────*/
     const screenshotDir = 'screenshots';
-    if (!fs.existsSync(screenshotDir)) {
-      fs.mkdirSync(screenshotDir);
-    }
+    if (!fs.existsSync(screenshotDir)) fs.mkdirSync(screenshotDir);
 
     const browser = await chromium.launch();
     const desktopCtx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
     const mobileCtx = await browser.newContext(devices['Pixel 5']);
 
     /*──────────────────────────── 5. Helpers ─────────────────────────────────────*/
-    // Helper constants and functions
-    const HTTP_REDIRECT = [301, 302]; // HTTP status codes for redirects
+    const HTTP_REDIRECT = [301, 302];
 
-    /**
-     * Scrolls the page one viewport at a time until any of the specified selectors become visible.
-     * @param {Page} page - The Playwright page object.
-     * @param {string[]} selectors - Array of CSS selectors to check for visibility.
-     * @param {number} maxScreens - Maximum number of viewports to scroll before giving up.
-     * @returns {string|null} The selector that became visible, or null if none were found.
-     */
     async function scrollAndFind(page, selectors, maxScreens = 10) {
       const viewH = await page.evaluate(() => window.innerHeight);
       for (let pass = 0; pass < maxScreens; pass++) {
         for (const sel of selectors)
-          if (await page.$(sel)) return sel; // Return the first visible selector
+          if (await page.$(sel)) return sel;
         await page.evaluate(vh => window.scrollBy(0, vh), viewH);
-        await page.waitForTimeout(500); // Wait for lazy-loaded content
+        await page.waitForTimeout(500);
       }
       return null;
     }
 
-    /**
-     * Performs a JavaScript-level click on an element, even if it's off-screen.
-     * @param {Page} page - The Playwright page object.
-     * @param {string} selector - The CSS selector of the element to click.
-     * @returns {boolean} True if the element was found and clicked, false otherwise.
-     */
     async function jsClick(page, selector) {
       return page.evaluate(sel => {
         const el = document.querySelector(sel);
@@ -138,80 +124,63 @@ try {
     }
 
     /*──────────────────────────── 6. Per-URL runner ─────────────────────────────*/
-    /**
-     * Runs all specified tests for a single URL.
-     * @param {Object} urlData - Contains the URL and its specified test IDs.
-     * @param {number} idx - The index of the URL in the results array.
-     */
     async function runUrl(urlData, idx) {
       const url = urlData.url;
       const testIds = urlData.testIds;
       console.log(`[${idx + 1}/${urls.length}] ${url}`);
       const t0 = Date.now();
 
-      // Create new pages for desktop and mobile contexts
       const pageD = await desktopCtx.newPage();
       const pageM = await mobileCtx.newPage();
       let respD;
 
-      // Navigate to the URL in the desktop context
       try {
         respD = await pageD.goto(url, { timeout: 30000, waitUntil: 'domcontentloaded' });
         console.log(`Page loaded for ${url}, status: ${respD.status()}`);
       } catch (error) {
         console.log(`Navigation error for ${url}: ${error.message}`);
-        // Capture screenshot on navigation error
         const safeUrl = url.replace(/[^a-zA-Z0-9]/g, '_');
-        const screenshotPath = path.join(screenshotDir, `${safeUrl}-navigation-error.png`);
-        await pageD.screenshot({ path: screenshotPath, fullPage: true }).catch(err => console.error(`Screenshot failed for navigation error: ${err.message}`));
-        console.log(`Screenshot attempted for navigation error: ${screenshotPath}`);
+        await pageD.screenshot({ path: `${screenshotDir}/${safeUrl}-nav-error.png`, fullPage: true })
+          .catch(err => console.error(`Screenshot failed: ${err.message}`));
       }
 
-      // Navigate to the URL in the mobile context
       try {
         await pageM.goto(url, { timeout: 30000, waitUntil: 'domcontentloaded' });
       } catch (error) {
         console.log(`Mobile navigation error for ${url}: ${error.message}`);
       }
 
-      // Record the HTTP status code from the desktop response
-      const httpStatus = respD ? respD.status() : 'N/A';
-      results[idx]['HTTP Status'] = httpStatus;
-
-      // Track failed test IDs for this URL
+      results[idx]['HTTP Status'] = respD ? respD.status() : 'N/A';
       const failedTestIds = [];
 
-      /* ---------- iterate through every Test ID specified for this URL ---------- */
+      const validTestIds = testIds.filter(id => allTestIds.includes(id));
+      if (testIds.length !== validTestIds.length) {
+        console.log(`   Warning: Invalid test IDs [${testIds.filter(id => !allTestIds.includes(id)).join(', ')}] ignored.`);
+      }
+
       for (const id of allTestIds) {
-        // Skip tests not specified for this URL
-        if (!testIds.includes(id)) continue;
+        if (!validTestIds.includes(id)) continue;
 
         let pass = false;
         try {
           switch (id) {
-            /* ##### Layout sanity checks ########################################*/
-            case 'TC-01': { // Desktop hero has an absolutely-positioned child
+            case 'TC-01': {
               await pageD.waitForSelector('section.ge-homepage-hero-v2-component', { timeout: 10000 });
               pass = await pageD.evaluate(() => {
                 const hero = document.querySelector('section.ge-homepage-hero-v2-component');
-                return hero && [...hero.querySelectorAll('*')]
-                       .some(el => getComputedStyle(el).position === 'absolute');
+                return hero && [...hero.querySelectorAll('*')].some(el => getComputedStyle(el).position === 'absolute');
               });
               break;
             }
-            case 'TC-02': { // Mobile hero *not* absolutely positioned
-              const inline = await pageM.$eval(
-                'div[id*="ge-homepage-hero"] div[style]', e => e.getAttribute('style')
-              ).catch(() => '');
+            case 'TC-02': {
+              const inline = await pageM.$eval('div[id*="ge-homepage-hero"] div[style]', e => e.getAttribute('style')).catch(() => '');
               pass = !/position\s*:\s*absolute/i.test(inline);
               break;
             }
-            case 'TC-03': pass = !!(await pageD.$('header, div[class*="header"]')); break; // Header exists
-            case 'TC-04': pass = !!(await pageD.$('nav, div[class*="nav"]')); break;    // Nav exists
-            case 'TC-05': pass = !!(await pageD.$('main, div[class*="main"]')); break;  // Main exists
-            case 'TC-06': pass = !!(await pageD.$('footer, div[class*="footer"]')); break; // Footer exists
-
-            /* ##### TC-07 – video splash ⇒ Vidyard player #######################*/
+            case 'TC-03': pass = !!(await pageD.$('header, div[class*="header"]')); break;
+            case 'TC-04': pass = !!(await pageD.$('nav, div[class*="nav"]')); break;
+            case 'TC-05': pass = !!(await pageD.$('main, div[class*="main"]')); break;
+            case 'TC-06': pass = !!(await pageD.$('footer, div[class*="footer"]')); break;
             case 'TC-07': {
               await pageD.waitForLoadState('networkidle');
               if (await pageD.$('video, video[data-testid="hls-video"], iframe[src*="vidyard"]')) {
@@ -224,78 +193,47 @@ try {
                 'div[data-testid="splashScreen"]',
                 '.ge-contentTeaser__content-section__contentTeaserHero__img-container'
               ]);
-              if (!clickSel) {
-                results[idx][id] = 'NA';
-                break;
-              }
+              if (!clickSel) { results[idx][id] = 'NA'; break; }
               await jsClick(pageD, clickSel);
-              const modal = await pageD.waitForSelector(
-                'div.ge-modal-window, div.ge-modal-window-wrapper',
-                { timeout: 15000 }
-              ).catch(() => null);
-              if (!modal) {
-                results[idx][id] = 'NA';
-                break;
-              }
-              pass = await pageD.waitForSelector(
-                'div.vidyard-player-container, iframe[src*="play.vidyard.com"]',
-                { timeout: 15000 }
-              ).then(() => true).catch(() => false);
+              const modal = await pageD.waitForSelector('div.ge-modal-window, div.ge-modal-window-wrapper', { timeout: 15000 }).catch(() => null);
+              if (!modal) { results[idx][id] = 'NA'; break; }
+              pass = await pageD.waitForSelector('div.vidyard-player-container, iframe[src*="play.vidyard.com"]', { timeout: 15000 }).then(() => true).catch(() => false);
               break;
             }
-
-            /* ##### Interaction / flows #########################################*/
-            case 'TC-08': { // "Contact us" button brings up a form
+            case 'TC-08': {
               const before = (await pageD.$$('form')).length;
               await pageD.waitForSelector('button.ge-contact-us-button__contactus-action-button', { timeout: 10000 });
               await pageD.click('button.ge-contact-us-button__contactus-action-button');
-              pass = await pageD.waitForFunction(
-                prev => document.querySelectorAll('form').length > prev,
-                before,
-                { timeout: 10000 }
-              ).then(() => true).catch(() => false);
+              pass = await pageD.waitForFunction(prev => document.querySelectorAll('form').length > prev, before, { timeout: 10000 }).then(() => true).catch(() => false);
               break;
             }
-
-            case 'TC-09': { // Declared Rendering Error (New Test)
+            case 'TC-09': {
               const errorText = 'A rendering error occurred';
-              const pageContent = await pageD.content();
-              pass = !pageContent.includes(errorText); // Pass if no error text found
+              pass = !(await pageD.content()).includes(errorText);
               break;
             }
-
-            case 'TC-10': pass = pageD.url().includes('/gatekeeper?'); break; // Gatekeeper
-
-            case 'TC-11': { // Insights first article link works
+            case 'TC-10': pass = pageD.url().includes('/gatekeeper?'); break;
+            case 'TC-11': {
               await pageD.click('div[class*="insights-list"] a').catch(() => {});
               const r = await pageD.goto(pageD.url()).catch(() => null);
               pass = !!r && r.status() === 200;
               break;
             }
-
-            case 'TC-12': pass = pageD.url().includes('/account/doccheck-login'); break; // DocCheck
-
-            case 'TC-13': { // DE nav-link redirect (301)
+            case 'TC-12': pass = pageD.url().includes('/account/doccheck-login'); break;
+            case 'TC-13': {
               await pageD.click('span.ge-cdx-header-redesign__nav-menu-item__nav-link:has-text("Produkte")');
               await pageD.click('div.menu-content-container-item-data:has-text("Ultraschall")');
               const more = await pageD.waitForSelector('a:has-text("Mehr erfahren")', { timeout: 10000 });
               await Promise.all([pageD.waitForNavigation({ timeout: 10000 }), more.click()]);
               const dest = pageD.url();
-              pass = dest.startsWith('https://www.ge-ultraschall.com/') ||
-                     dest.startsWith('https://gehealthcare-ultrasound.com/');
+              pass = dest.startsWith('https://www.ge-ultraschall.com/') || dest.startsWith('https://gehealthcare-ultrasound.com/');
               break;
             }
-
-            /* ##### Basic HTTP sanity ###########################################*/
-            case 'TC-14': { // Check if HTTP status is 2xx or redirect
+            case 'TC-14': {
               const c = respD ? respD.status() : 0;
               pass = (c >= 200 && c < 300) || HTTP_REDIRECT.includes(c);
               break;
             }
-
-            default:
-              results[idx][id] = 'NA';
-              continue;
           }
         } catch (err) {
           console.log(`   EXCEPTION ${err.message}`);
@@ -303,45 +241,25 @@ try {
         }
 
         results[idx][id] = pass ? 'Pass' : 'Fail';
-
-        // If the test failed, add its ID to the list of failed tests for this URL
-        if (!pass) {
-          failedTestIds.push(id);
-        }
+        if (!pass) failedTestIds.push(id);
       }
 
-      // If there were any failed tests, capture a full-page screenshot with debug logic
+      // Capture screenshot for failed tests after all tests run
       if (failedTestIds.length > 0) {
-        const safeUrl = url.replace(/[^a-zA-Z0-9]/g, '_'); // Sanitize URL for filename
-        const screenshotName = `${safeUrl}-failed-${failedTestIds.join(',')}.png`;
-        const screenshotPath = path.join(screenshotDir, screenshotName);
-
-        // Log before capturing screenshot
-        console.log(`Attempting to capture screenshot for failed tests: ${failedTestIds.join(',')} at ${screenshotPath}`);
-
         try {
-          // Wait for the page to be fully loaded before capturing
+          // Wait for full page load and rendering
           await pageD.waitForLoadState('networkidle', { timeout: 30000 });
-
-          // Check if the page has content
-          const pageContent = await pageD.content();
-          if (pageContent.trim() === '') {
-            console.log(`Page content is empty for ${url}`);
-          } else {
-            console.log(`Page content length: ${pageContent.length} for ${url}`);
-          }
-
-          // Capture the screenshot
+          await pageD.waitForTimeout(1000); // Additional delay for rendering
+          const safeUrl = url.replace(/[^a-zA-Z0-9]/g, '_');
+          const screenshotPath = `${screenshotDir}/${safeUrl}-failed-${failedTestIds.join(',')}.png`;
+          console.log(`Capturing screenshot: ${screenshotPath}`);
           await pageD.screenshot({ path: screenshotPath, fullPage: true });
-          console.log(`Screenshot captured successfully: ${screenshotPath}`);
         } catch (error) {
           console.error(`Failed to capture screenshot for ${url}: ${error.message}`);
         }
       }
 
-      // Compute "Page Pass?" for tests specified in Test IDs
-      results[idx]['Page Pass?'] = testIds.length === 0 || testIds.every(id => ['Pass', 'NA'].includes(results[idx][id]))
-        ? 'Pass' : 'Fail';
+      results[idx]['Page Pass?'] = validTestIds.length === 0 || validTestIds.every(id => ['Pass', 'NA'].includes(results[idx][id])) ? 'Pass' : 'Fail';
 
       console.log(`     ✔ ${(Date.now() - t0) / 1000}s`);
       await pageD.close();
@@ -349,7 +267,6 @@ try {
     }
 
     /*──────────────────────────── 7. Run in batches ─────────────────────────────*/
-    // Step 7: Run tests in batches for efficiency (e.g., 2 URLs at a time)
     const CONCURRENCY = 2;
     for (let i = 0; i < urls.length; i += CONCURRENCY) {
       const slice = urls.slice(i, i + CONCURRENCY);
@@ -357,8 +274,7 @@ try {
       await Promise.all(slice.map((u, j) => runUrl(u, i + j)));
     }
 
-    /*──────────────────────────── 8. Summary + Metadata ─────────────────────────*/
-    // Step 8: Summarize results and update metadata
+    /*──────────────────────────── 8. Summary ────────────────────────────────────*/
     const total = results.length;
     const passed = results.filter(r => r['Page Pass?'] === 'Pass').length;
     const failed = total - passed;
@@ -369,42 +285,39 @@ try {
       if (f) console.log(`  • ${f} × ${id}`);
     });
 
-    // Update Metadata sheet with run details using exceljs
-    const metaSheet = workbook.getWorksheet('Metadata');
+    /*──────────────────────────── 9. Write new workbook ─────────────────────────*/
+    const outputWorkbook = new ExcelJS.Workbook();
+
+    // Results sheet with all columns
+    const resultSheet = outputWorkbook.addWorksheet('Results');
+    const resultHeaders = [...headers, ...allTestIds, 'Page Pass?', 'HTTP Status'];
+    resultSheet.getRow(1).values = resultHeaders;
+    results.forEach((result, index) => {
+      const rowData = headers.map(h => result[h]);
+      const testResults = allTestIds.map(id => result[id]);
+      resultSheet.getRow(index + 2).values = [...rowData, ...testResults, result['Page Pass?'], result['HTTP Status']];
+    });
+
+    // Metadata sheet
+    const metaSheet = outputWorkbook.addWorksheet('Metadata');
     metaSheet.getRow(1).values = ['Run Date', 'Run Time', 'Initiated By', 'Notes'];
     metaSheet.getRow(2).values = [
-      new Date().toISOString().slice(0, 10),   // Run Date
-      new Date().toTimeString().slice(0, 8),   // Run Time
+      new Date().toISOString().slice(0, 10),
+      new Date().toTimeString().slice(0, 8),
       initiatedBy,
       `${passed}/${total} passed`
     ];
 
-    /*──────────────────────────── 9. Write Results sheet ────────────────────────*/
-    // Step 9: Write the results to the "Results" sheet using exceljs
-    const resultSheet = workbook.getWorksheet('Results');
-    // Clear any existing tables to avoid style-related errors
-    resultSheet.tables = {};
-    resultSheet.getRow(1).values = ['URL', ...allTestIds, 'Page Pass?', 'HTTP Status'];
-    results.forEach((result, index) => {
-      const row = resultSheet.getRow(index + 2);
-      row.values = [result.URL, ...allTestIds.map(id => result[id]), result['Page Pass?'], result['HTTP Status']];
-    });
-
-    // Save the workbook to the output file
-    await workbook.xlsx.writeFile(outputFile);
+    await outputWorkbook.xlsx.writeFile(outputFile);
     console.log(`\n✅ Results saved → ${outputFile}\n`);
-    
-    // Step 10: Output detailed summary as JSON for workflow to capture
-    const summary = {
-      passed: results.filter(r => r['Page Pass?'] === 'Pass').length,
-      failed: results.filter(r => r['Page Pass?'] === 'Fail').length,
-      na: results.filter(r => r['Page Pass?'] === 'Not Run').length
-    };
+
+    // Summary JSON
+    const summary = { passed, failed, na: results.filter(r => r['Page Pass?'] === 'Not Run').length };
     fs.writeFileSync('summary.json', JSON.stringify(summary));
     process.exit(0);
   })();
 } catch (error) {
-  console.error('Fatal error in QA test script:', error.message);
+  console.error('Fatal error:', error.message);
   console.error('Stack trace:', error.stack);
   process.exit(1);
 }
