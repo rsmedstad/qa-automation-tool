@@ -31,7 +31,8 @@ export default async function handler(req, res) {
         const hasArtifacts = artifacts.length > 0;
         console.log(`Run ${run.id} has ${artifacts.length} artifacts`);
 
-        const summaryArtifact = artifacts.find(artifact => artifact.name === 'summary-json');
+        // Look for summary-json artifact with run-specific naming
+        const summaryArtifact = artifacts.find(artifact => artifact.name.startsWith('summary-json'));
         let detailedData = { passed: 0, failed: 0, na: 0 };
 
         if (summaryArtifact) {
