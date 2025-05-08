@@ -1,15 +1,13 @@
 // api/trigger-test.js
 // Triggers an ad-hoc QA test by uploading the file to Vercel Blob and dispatching the GitHub workflow
 
-const { Octokit } = require('@octokit/rest');
-const { put } = require('@vercel/blob');
-
 /**
  * Uploads the input.xlsx file to Vercel Blob.
  * @param {Buffer} fileBuffer - The file buffer from the uploaded file.
  * @returns {string} The URL of the uploaded file.
  */
 async function uploadFileToStorage(fileBuffer) {
+  const { put } = await import('@vercel/blob');
   const blob = await put('input.xlsx', fileBuffer, {
     access: 'public',
     token: process.env.BLOB_READ_WRITE_TOKEN,
@@ -41,8 +39,11 @@ export default async function handler(req, res) {
     // Upload file to Vercel Blob and get URL
     const fileUrl = await uploadFileToStorage(fileBuffer);
 
-    // Trigger GitHub Actions workflow
+    // Dynamically import @octokit/rest
+    const { Octokit } = await import('@octokit/rest');
     const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
+
+    // Trigger GitHub Actions workflow
     await octokit.actions.createWorkflowDispatch({
       owner: 'rsmedstad',
       repo: 'qa-automation-tool',
