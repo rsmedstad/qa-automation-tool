@@ -311,7 +311,7 @@ try {
     await outputWorkbook.xlsx.writeFile(outputFile);
     console.log(`\n✅ Results saved → ${outputFile}\n`);
 
-    // Summary JSON
+    // Summary JSON for Dashboarding
     const summary = { passed, failed, na: results.filter(r => r['Page Pass?'] === 'Not Run').length };
     fs.writeFileSync('summary.json', JSON.stringify(summary));
     process.exit(0);

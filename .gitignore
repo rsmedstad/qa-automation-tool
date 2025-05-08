@@ -4,3 +4,4 @@ uploads/
 .env.local
 .next/
 .cursor/
+screenshots/ 
