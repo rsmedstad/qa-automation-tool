@@ -47,6 +47,7 @@ export default function Dashboard() {
           runId: run.runId || `fallback-${idx}`,
           hasArtifacts: run.hasArtifacts ?? false,
           artifactCount: run.artifactCount || 0,
+          artifactsList: run.artifactsList || [], // Assuming this includes all artifacts
         }));
         setRuns(sanitizedData);
       } catch (err) {
@@ -100,10 +101,19 @@ export default function Dashboard() {
         const date = new Date(run.date);
         return `${date.toLocaleDateString()}\n${date.toLocaleTimeString()}`;
       });
-      const passedData = sortedRuns.map(run => run.successCount);
-      const failedData = sortedRuns.map(run => run.failureCount);
+      const passedData = sortedRuns.map(run => run.successCount || 0);
+      const failedData = sortedRuns.map(run => run.failureCount || 0);
       const naData = sortedRuns.map(run => run.naCount || 0);
-      const maxUrls = Math.max(...sortedRuns.map(run => run.successCount + run.failureCount + (run.naCount || 0)));
+
+      // Filter out runs where all values are 0
+      const filteredIndices = sortedRuns.map((run, index) => 
+        passedData[index] > 0 || failedData[index] > 0 || naData[index] > 0 ? index : null
+      ).filter(index => index !== null);
+
+      const filteredLabels = filteredIndices.map(index => labels[index]);
+      const filteredPassedData = filteredIndices.map(index => passedData[index]);
+      const filteredFailedData = filteredIndices.map(index => failedData[index]);
+      const filteredNaData = filteredIndices.map(index => naData[index]);
 
       if (chartRef.current.chart) {
         chartRef.current.chart.destroy();
@@ -112,21 +122,21 @@ export default function Dashboard() {
       chartRef.current.chart = new Chart(ctx, {
         type: 'bar',
         data: {
-          labels: labels,
+          labels: filteredLabels,
           datasets: [
             {
               label: '# Passed',
-              data: passedData,
+              data: filteredPassedData,
               backgroundColor: 'rgba(75, 192, 75, 0.5)',
             },
             {
               label: '# Failed',
-              data: failedData,
+              data: filteredFailedData,
               backgroundColor: 'rgba(255, 99, 132, 0.5)',
             },
             {
               label: '# N/A',
-              data: naData,
+              data: filteredNaData,
               backgroundColor: 'rgba(255, 206, 86, 0.5)',
             },
           ],
@@ -141,17 +151,19 @@ export default function Dashboard() {
                 maxRotation: 45,
                 minRotation: 45,
                 callback: function(value, index, values) {
-                  return labels[index].split('\n');
+                  return filteredLabels[index].split('\n');
                 },
               },
             },
             y: {
               stacked: true,
               beginAtZero: true,
-              max: Math.ceil(maxUrls / 10) * 10 + 10,
               ticks: {
                 stepSize: 1,
                 precision: 0,
+                callback: function(value) {
+                  return value > 0 ? value : ''; // Hide 0 labels
+                },
               },
               title: { display: true, text: 'Total URLs Crawled' },
             },
@@ -165,7 +177,7 @@ export default function Dashboard() {
               color: 'black',
               anchor: 'center',
               align: 'center',
-              formatter: (value) => value,
+              formatter: (value) => value > 0 ? value : '', // Hide 0 data labels
             },
           },
         },
@@ -321,7 +333,7 @@ export default function Dashboard() {
           <div className="flex gap-6 mb-6">
             <div className="flex-[2] p-4 bg-white dark:bg-gray-800 rounded-xl shadow-md overflow-x-auto">
               <h2 className="text-xl font-semibold mb-2 text-gray-900 dark:text-gray-100">Crawls Trended</h2>
-              <div style={{ height: '300px', width: '100%' }}>
+              <div style={{ height: '80vh', width: '100%' }}> {/* Increased height to 80vh */}
                 <canvas ref={chartRef}></canvas>
               </div>
             </div>
@@ -384,7 +396,7 @@ export default function Dashboard() {
                         <td className="p-2">
                           {run.hasArtifacts ? (
                             <a href={`https://github.com/rsmedstad/qa-automation-tool/actions/runs/${run.runId}`} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">
-                              <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="#e8eaed" className="inline mr-1">
+                              <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill={isDarkMode ? '#e8eaed' : '#424242'} className="inline mr-1">
                                 <path d="M200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h280v80H200v560h560v-280h80v280q0 33-23.5 56.5T760-120H200Zm188-212-56-56 372-372H560v-80h280v280h-80v-144L388-332Z"/>
                               </svg>
                               View ({run.artifactCount})
@@ -397,7 +409,7 @@ export default function Dashboard() {
                       {expandedRows.includes(run.runId) && run.hasArtifacts && (
                         <tr key={`artifact-${run.runId}`} className="bg-gray-100 dark:bg-gray-600">
                           <td colSpan="6" className="p-2 pl-8">
-                            Artifacts: results-{run.runId}.xlsx, screenshots-{run.runId}
+                            Artifacts: {run.artifactsList.join(', ')} {/* Include all artifacts, including summary.json */}
                           </td>
                         </tr>
                       )}
