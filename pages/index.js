@@ -46,7 +46,7 @@ export default function Dashboard() {
           ...run,
           runId: run.runId || `fallback-${idx}`,
           hasArtifacts: run.hasArtifacts ?? false,
-          artifactCount: run.artifactCount || 0, // Assuming API provides this; adjust if needed
+          artifactCount: run.artifactCount || 0,
         }));
         setRuns(sanitizedData);
       } catch (err) {
@@ -140,18 +140,18 @@ export default function Dashboard() {
                 maxTicksLimit: 10,
                 maxRotation: 45,
                 minRotation: 45,
-                callback: function(value) {
-                  return ('' + value).split('\n');
+                callback: function(value, index, values) {
+                  return labels[index].split('\n');
                 },
               },
             },
             y: {
               stacked: true,
               beginAtZero: true,
-              max: Math.ceil(maxUrls / 10) * 10 + 10, // Dynamic max, rounded up to nearest 10 plus buffer
+              max: Math.ceil(maxUrls / 10) * 10 + 10,
               ticks: {
-                stepSize: 1, // Whole numbers only
-                precision: 0, // No decimals
+                stepSize: 1,
+                precision: 0,
               },
               title: { display: true, text: 'Total URLs Crawled' },
             },
@@ -163,13 +163,13 @@ export default function Dashboard() {
             datalabels: {
               display: true,
               color: 'black',
-              anchor: 'end',
-              align: 'top',
-              formatter: (value) => value, // Show exact value
+              anchor: 'center',
+              align: 'center',
+              formatter: (value) => value,
             },
           },
         },
-        plugins: [ChartDataLabels], // Add the plugin
+        plugins: [ChartDataLabels],
       });
     }
     return () => {
@@ -385,7 +385,7 @@ export default function Dashboard() {
                           {run.hasArtifacts ? (
                             <a href={`https://github.com/rsmedstad/qa-automation-tool/actions/runs/${run.runId}`} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">
                               <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="#e8eaed" className="inline mr-1">
-                                <path d="M480-320 280-520l56-58 104 104v-326h80v326l104-104 56 58-200 200ZM240-160q-33 0-56.5-23.5T160-240v-120h80v120h480v-120h80v120q0 33-23.5 56.5T720-160H240Z"/>
+                                <path d="M200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h280v80H200v560h560v-280h80v280q0 33-23.5 56.5T760-120H200Zm188-212-56-56 372-372H560v-80h280v280h-80v-144L388-332Z"/>
                               </svg>
                               View ({run.artifactCount})
                             </a>
@@ -397,19 +397,7 @@ export default function Dashboard() {
                       {expandedRows.includes(run.runId) && run.hasArtifacts && (
                         <tr key={`artifact-${run.runId}`} className="bg-gray-100 dark:bg-gray-600">
                           <td colSpan="6" className="p-2 pl-8">
-                            Artifacts:
-                            <a href={`https://github.com/rsmedstad/qa-automation-tool/actions/runs/${run.runId}/artifacts`} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline ml-2">
-                              <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="#e8eaed" className="inline mr-1">
-                                <path d="M200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h280v80H200v560h560v-280h80v280q0 33-23.5 56.5T760-120H200Zm188-212-56-56 372-372H560v-80h280v280h-80v-144L388-332Z"/>
-                              </svg>
-                              results-{run.runId}.xlsx
-                            </a>,
-                            <a href={`https://github.com/rsmedstad/qa-automation-tool/actions/runs/${run.runId}/artifacts`} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline ml-2">
-                              <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="#e8eaed" className="inline mr-1">
-                                <path d="M200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h280v80H200v560h560v-280h80v280q0 33-23.5 56.5T760-120H200Zm188-212-56-56 372-372H560v-80h280v280h-80v-144L388-332Z"/>
-                              </svg>
-                              screenshots-{run.runId}
-                            </a>
+                            Artifacts: results-{run.runId}.xlsx, screenshots-{run.runId}
                           </td>
                         </tr>
                       )}
