@@ -46,6 +46,7 @@ export default function Dashboard() {
           ...run,
           runId: run.runId || `fallback-${idx}`,
           hasArtifacts: run.hasArtifacts ?? false,
+          artifactCount: run.artifactCount || 0, // Assuming API provides this; adjust if needed
         }));
         setRuns(sanitizedData);
       } catch (err) {
@@ -147,14 +148,28 @@ export default function Dashboard() {
             y: {
               stacked: true,
               beginAtZero: true,
-              max: Math.max(10, maxUrls * 1.1),
+              max: Math.ceil(maxUrls / 10) * 10 + 10, // Dynamic max, rounded up to nearest 10 plus buffer
+              ticks: {
+                stepSize: 1, // Whole numbers only
+                precision: 0, // No decimals
+              },
               title: { display: true, text: 'Total URLs Crawled' },
             },
           },
           responsive: true,
           maintainAspectRatio: false,
-          plugins: { legend: { display: true } },
+          plugins: {
+            legend: { display: true },
+            datalabels: {
+              display: true,
+              color: 'black',
+              anchor: 'end',
+              align: 'top',
+              formatter: (value) => value, // Show exact value
+            },
+          },
         },
+        plugins: [ChartDataLabels], // Add the plugin
       });
     }
     return () => {
@@ -269,11 +284,12 @@ export default function Dashboard() {
       const data = await response.json();
       if (data.valid) {
         setIsGeminiEnabled(true);
+        setGeminiError('');
       } else {
-        alert(data.message || 'Invalid passphrase');
+        setGeminiError(data.message || 'Invalid passphrase');
       }
     } catch (err) {
-      alert('Failed to validate passphrase');
+      setGeminiError('Failed to validate passphrase');
     }
   };
 
@@ -366,12 +382,16 @@ export default function Dashboard() {
                         <td className="p-2">{run.successCount}</td>
                         <td className="p-2">{run.failureCount}</td>
                         <td className="p-2">
-                          <a href={`https://github.com/rsmedstad/qa-automation-tool/actions/runs/${run.runId}`} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">
-                            <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="#e8eaed" className="inline mr-1">
-                              <path d="M200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h280v80H200v560h560v-280h80v280q0 33-23.5 56.5T760-120H200Zm188-212-56-56 372-372H560v-80h280v280h-80v-144L388-332Z"/>
-                            </svg>
-                            View
-                          </a>
+                          {run.hasArtifacts ? (
+                            <a href={`https://github.com/rsmedstad/qa-automation-tool/actions/runs/${run.runId}`} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">
+                              <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="#e8eaed" className="inline mr-1">
+                                <path d="M480-320 280-520l56-58 104 104v-326h80v326l104-104 56 58-200 200ZM240-160q-33 0-56.5-23.5T160-240v-120h80v120h480v-120h80v120q0 33-23.5 56.5T720-160H240Z"/>
+                              </svg>
+                              View ({run.artifactCount})
+                            </a>
+                          ) : (
+                            'None'
+                          )}
                         </td>
                       </tr>
                       {expandedRows.includes(run.runId) && run.hasArtifacts && (
@@ -437,6 +457,7 @@ export default function Dashboard() {
                       placeholder="Enter passphrase to enable Gemini"
                       className="w-full p-2 border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100"
                     />
+                    {geminiError && <p className="text-red-500 mt-1">{geminiError}</p>}
                   </div>
                   <div className="flex justify-end">
                     <button

@@ -4,12 +4,10 @@ export default async function handler(req, res) {
   }
 
   try {
-    // Dynamically import ES modules
     const { Octokit } = await import('@octokit/rest');
     const fetch = (await import('node-fetch')).default;
     const AdmZip = (await import('adm-zip')).default;
 
-    // Validate GITHUB_TOKEN
     if (!process.env.GITHUB_TOKEN) {
       console.error('GITHUB_TOKEN is not set in environment variables');
       return res.status(500).json({ message: 'Server configuration error: GITHUB_TOKEN is missing' });
@@ -34,10 +32,10 @@ export default async function handler(req, res) {
         });
 
         const artifacts = artifactsResponse.data.artifacts;
-        const hasArtifacts = artifacts.length > 0;
-        console.log(`Run ${run.id} has ${artifacts.length} artifacts`);
+        const artifactCount = artifacts.length;
+        const hasArtifacts = artifactCount > 0;
+        console.log(`Run ${run.id} has ${artifactCount} artifacts`);
 
-        // Look for summary-json artifact with run-specific naming
         const summaryArtifact = artifacts.find(artifact => artifact.name.startsWith('summary-json'));
         let detailedData = { passed: 0, failed: 0, na: 0 };
 
@@ -73,10 +71,11 @@ export default async function handler(req, res) {
           runId: run.id,
           event: run.event,
           hasArtifacts: hasArtifacts,
+          artifactCount: artifactCount, // Added artifact count
         };
       } catch (runError) {
         console.error(`Error processing run ${run.id}:`, runError.message);
-        return null; // Skip this run but continue processing others
+        return null;
       }
     }));
 
