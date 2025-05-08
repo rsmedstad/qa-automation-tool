@@ -382,6 +382,8 @@ try {
     /*──────────────────────────── 9. Write Results sheet ────────────────────────*/
     // Step 9: Write the results to the "Results" sheet using exceljs
     const resultSheet = workbook.getWorksheet('Results');
+    // Clear any existing tables to avoid style-related errors
+    resultSheet.tables = {};
     resultSheet.getRow(1).values = ['URL', ...allTestIds, 'Page Pass?', 'HTTP Status'];
     results.forEach((result, index) => {
       const row = resultSheet.getRow(index + 2);
