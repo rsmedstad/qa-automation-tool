@@ -2,7 +2,7 @@
 /*───────────────────────────────────────────────────────────────────────────────
   qa-test.js
   ----------
-  • Reads workbook (URLs / empty Results + Metadata)
+  • Reads workbook (URLs / empty Results + Metadata) using exceljs
   • Runs Playwright checks (desktop + mobile) based on Test IDs specified per URL
   • Writes Pass/Fail matrix and fills Metadata
   • Captures screenshots for failed tests with enhanced logging
@@ -12,7 +12,7 @@
 ───────────────────────────────────────────────────────────────────────────────*/
 
 import os from 'os';
-import XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
 import { chromium, devices } from 'playwright';
 import fs from 'fs';
 import path from 'path';
@@ -34,31 +34,30 @@ try {
     console.log(`▶ Initiated : ${initiatedBy}\n`);
 
     /*──────────────────────────── 2. Load workbook data ──────────────────────────*/
-    // Step 2: Validate and load the input Excel file
-    console.log('Checking file content...');
-    const fileContent = fs.readFileSync(inputFile, 'utf8');
-    console.log('File content (first 100 chars):', fileContent.substring(0, 100));
-    if (fileContent.startsWith('{')) {
-      console.error('Error: input.xlsx is not an Excel file. Contents:', fileContent);
-      process.exit(1);
-    }
-
-    console.log('Reading Excel file...');
-    const wb = XLSX.readFile(inputFile, { cellStyles: true });
-    console.log('Sheet names:', wb.SheetNames); // Debug: Log all sheet names
+    // Step 2: Load the input Excel file using exceljs
+    console.log('Reading Excel file with exceljs...');
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.readFile(inputFile);
 
     // Check for required sheets: URLs, Metadata, Results
     const requiredSheets = ['URLs', 'Metadata', 'Results'];
     for (const sheet of requiredSheets) {
-      if (!wb.SheetNames.includes(sheet)) {
-        console.error(`Required sheet "${sheet}" not found. Available sheets:`, wb.SheetNames);
+      if (!workbook.getWorksheet(sheet)) {
+        console.error(`Required sheet "${sheet}" not found. Available sheets:`, workbook.worksheets.map(ws => ws.name));
         process.exit(1);
       }
     }
 
     // Convert "URLs" sheet to JSON format
-    const urlSheet = wb.Sheets['URLs'];
-    const urlJsonData = XLSX.utils.sheet_to_json(urlSheet);
+    const urlSheet = workbook.getWorksheet('URLs');
+    const urlJsonData = [];
+    urlSheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
+      if (rowNumber === 1) return; // Skip header row
+      urlJsonData.push({
+        URL: row.getCell(1).value,
+        'Test IDs': row.getCell(2).value
+      });
+    });
     console.log('First 5 rows of URLs sheet:', urlJsonData.slice(0, 5)); // Debug: Log first 5 rows
 
     // Extract URLs and their specified test IDs
@@ -370,39 +369,36 @@ try {
       if (f) console.log(`  • ${f} × ${id}`);
     });
 
-    // Update Metadata sheet with run details
-    const metaHdr = ['Run Date', 'Run Time', 'Initiated By', 'Notes'];
-    wb.Sheets.Metadata = XLSX.utils.aoa_to_sheet([
-      metaHdr,
-      [
-        new Date().toISOString().slice(0, 10),   // Run Date
-        new Date().toTimeString().slice(0, 8),   // Run Time
-        initiatedBy,
-        `${passed}/${total} passed`
-      ]
-    ]);
+    // Update Metadata sheet with run details using exceljs
+    const metaSheet = workbook.getWorksheet('Metadata');
+    metaSheet.getRow(1).values = ['Run Date', 'Run Time', 'Initiated By', 'Notes'];
+    metaSheet.getRow(2).values = [
+      new Date().toISOString().slice(0, 10),   // Run Date
+      new Date().toTimeString().slice(0, 8),   // Run Time
+      initiatedBy,
+      `${passed}/${total} passed`
+    ];
 
     /*──────────────────────────── 9. Write Results sheet ────────────────────────*/
-    // Step 9: Write the results to the "Results" sheet in the output Excel file
-    const ws = wb.Sheets.Results;
-    ws['!ref'] = 'A1:A1';                         // Clear old table (keep conditional formatting)
-    for (const k in ws) if (!k.startsWith('!')) delete ws[k];
-
-    const headers = ['URL', ...allTestIds, 'Page Pass?', 'HTTP Status'];
-    const aoa = [headers, ...results.map(r => headers.map(h => r[h] ?? ''))];
-    XLSX.utils.sheet_add_aoa(ws, aoa, { origin: 0 });
-    ws['!ref'] = XLSX.utils.encode_range({
-      s: { c: 0, r: 0 },
-      e: { c: headers.length - 1, r: aoa.length - 1 }
+    // Step 9: Write the results to the "Results" sheet using exceljs
+    const resultSheet = workbook.getWorksheet('Results');
+    resultSheet.getRow(1).values = ['URL', ...allTestIds, 'Page Pass?', 'HTTP Status'];
+    results.forEach((result, index) => {
+      const row = resultSheet.getRow(index + 2);
+      row.values = [result.URL, ...allTestIds.map(id => result[id]), result['Page Pass?'], result['HTTP Status']];
     });
 
-    XLSX.writeFile(wb, outputFile, { bookType: 'xlsx', cellStyles: true });
+    // Save the workbook to the output file
+    await workbook.xlsx.writeFile(outputFile);
     console.log(`\n✅ Results saved → ${outputFile}\n`);
-
-    // Step 10: Output summary as JSON for workflow to capture
-    const summary = { success: passed, failure: failed };
-    fs.writeFileSync('results.txt', JSON.stringify(summary)); // Write to file for workflow
-    console.log(JSON.stringify(summary));
+    
+    // Step 10: Output detailed summary as JSON for workflow to capture
+    const summary = {
+      passed: results.filter(r => r['Page Pass?'] === 'Pass').length,
+      failed: results.filter(r => r['Page Pass?'] === 'Fail').length,
+      na: results.filter(r => r['Page Pass?'] === 'Not Run').length
+    };
+    fs.writeFileSync('summary.json', JSON.stringify(summary));
     process.exit(0);
   })();
 } catch (error) {

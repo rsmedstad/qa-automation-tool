@@ -1,0 +1,47 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+body {
+  font-family: 'Inter', sans-serif;
+}
+
+.prose table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 1rem;
+}
+
+.prose th, .prose td {
+  padding: 0.75rem;
+  border-bottom: 1px solid #e5e7eb;
+  text-align: left;
+}
+
+.prose th {
+  background-color: #f3f4f6;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.prose tr:nth-child(even) {
+  background-color: #f1f5f9;
+}
+
+.prose tr:nth-child(odd) {
+  background-color: #ffffff;
+}
+
+.dark .prose th, .dark .prose td {
+  border-bottom-color: #374151;
+}
+
+.dark .prose th {
+  background-color: #1f2937;
+}
+
+.dark .prose tr:nth-child(even) {
+  background-color: #111827;
+}

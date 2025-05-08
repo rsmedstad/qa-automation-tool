@@ -107,7 +107,7 @@ export default async function handler(req, res) {
     console.log("Creating draft release...");
     const releaseResponse = await octokit.request("POST /repos/{owner}/{repo}/releases", {
       owner: "rsmedstad",
-      repo: "gehc-cmc-testing",
+      repo: "qa-automation-tool",
       tag_name: `qa-run-${Date.now()}`, // Unique tag for the release
       name: "QA Run Draft Release",
       draft: true,
@@ -140,7 +140,7 @@ export default async function handler(req, res) {
       "POST /repos/{owner}/{repo}/actions/workflows/{file}/dispatches",
       {
         owner: "rsmedstad",
-        repo: "gehc-cmc-testing",
+        repo: "qa-automation-tool",
         file: "run-qa.yml",
         ref: "main",
         inputs: {

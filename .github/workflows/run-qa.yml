@@ -61,9 +61,15 @@ jobs:
           SUMMARY=$(tail -n 1 results.txt)
           echo "SUMMARY=$SUMMARY" >> $GITHUB_ENV
 
+      - name: Upload summary JSON artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: summary-json
+          path: summary.json
+
       - name: Send summary to Vercel
         env:
-          VERCEL_URL: "https://gehc-cmc-testing.vercel.app"  # Replace with your Vercel app URL
+          VERCEL_URL: "https://qa-automation-tool.vercel.app"  # Replace with your Vercel app URL
         run: |
           curl -X POST "$VERCEL_URL/api/store-run" \
                -H "Content-Type: application/json" \
