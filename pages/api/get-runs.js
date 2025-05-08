@@ -9,6 +9,12 @@ export default async function handler(req, res) {
     const fetch = (await import('node-fetch')).default;
     const AdmZip = (await import('adm-zip')).default;
 
+    // Validate GITHUB_TOKEN
+    if (!process.env.GITHUB_TOKEN) {
+      console.error('GITHUB_TOKEN is not set in environment variables');
+      return res.status(500).json({ message: 'Server configuration error: GITHUB_TOKEN is missing' });
+    }
+
     const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
     console.log('Fetching workflow runs...');
     const { data } = await octokit.actions.listWorkflowRuns({
@@ -79,6 +85,12 @@ export default async function handler(req, res) {
     res.status(200).json(validRuns);
   } catch (error) {
     console.error('Error in /api/get-runs:', error.message, error.stack);
+    if (error.message.includes('rate limit exceeded')) {
+      return res.status(429).json({ 
+        message: 'GitHub API rate limit exceeded. Please try again later.', 
+        details: error.message 
+      });
+    }
     res.status(500).json({ message: 'Internal server error', details: error.message });
   }
 }
