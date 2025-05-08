@@ -5,7 +5,7 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 /**
  * Handles POST requests to query the Gemini AI assistant.
- * @param {Object} req - The request object with the user's question.
+ * @param {Object} req - The request object with the user's question and passphrase.
  * @param {Object} res - The response object to send back the AI's answer.
  */
 export default async function handler(req, res) {
@@ -13,8 +13,19 @@ export default async function handler(req, res) {
     return res.status(405).json({ message: 'Method not allowed' });
   }
 
-  const { question } = req.body;
+  const { question, passphrase } = req.body;
   const apiKey = process.env.GEMINI_API_KEY;
+  const storedPassphrase = process.env.GEMINI_PASSPHRASE;
+
+  // Log for debugging
+  console.log('Received passphrase:', passphrase);
+  console.log('Stored passphrase:', storedPassphrase);
+
+  // Validate passphrase
+  if (!storedPassphrase || passphrase.trim() !== storedPassphrase.trim()) {
+    console.log('Passphrase validation failed');
+    return res.status(401).json({ message: 'Invalid passphrase' });
+  }
 
   // Validate API key
   if (!apiKey) {
@@ -31,7 +42,7 @@ export default async function handler(req, res) {
   try {
     console.log('Querying Gemini with question:', question);
     const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' }); // Updated model name
+    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
 
     const result = await model.generateContent(question);
     const response = await result.response;

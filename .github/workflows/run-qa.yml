@@ -56,10 +56,12 @@ jobs:
         run: |
           node api/qa-test.js input.xlsx results-${{ github.run_id }}.xlsx "${{ env.INITIATOR }}"
 
-      - name: Capture test summary
+      - name: Capture test summary and create summary.json
         run: |
           SUMMARY=$(tail -n 1 results.txt)
           echo "SUMMARY=$SUMMARY" >> $GITHUB_ENV
+          # Assuming results.txt has JSON with success, failure, na keys
+          echo "$SUMMARY" | jq '{ "passed": .success, "failed": .failure, "na": (.total - .success - .failure) }' > summary.json
 
       - name: Upload summary JSON artifact
         uses: actions/upload-artifact@v4
