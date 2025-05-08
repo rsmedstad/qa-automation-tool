@@ -2,3 +2,5 @@
 !input_template.xlsx
 uploads/
 .env.local
+.next/
+.cursor/
