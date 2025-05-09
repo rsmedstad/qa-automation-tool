@@ -458,7 +458,7 @@ export default function Dashboard() {
       <main className="container mx-auto px-2 sm:px-4 py-6 sm:py-8">
         {/* Header Section */}
         <div className="flex flex-col sm:flex-row justify-between items-center mb-6 sm:mb-8">
-          <h1 className="text-2xl sm:text-3xl font-bold text-gray-800 dark:text-gray-200 mb-2 sm:mb-0">QA Run Dashboard</h1>
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-800 dark:text-gray-200 mb-2 sm:mb-0">QA Automation Dashboard</h1>
           <button
             onClick={() => setIsDarkMode(!isDarkMode)}
             className="p-2 rounded-lg bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
@@ -505,7 +505,7 @@ export default function Dashboard() {
                     onClick={() => setShowAll(!showAll)}
                     className="text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 font-medium transition-colors text-sm"
                   >
-                    {showAll ? 'Collapse All' : `Show All (${runs.length})`}
+                    {showAll ? `Collapse (${runs.length})` : `Expand (${runs.length})`}
                   </button>
                 )}
               </div>
@@ -663,7 +663,7 @@ export default function Dashboard() {
               </button>
             </div>
             {isTestDefsExpanded && (
-              <div className="prose prose-sm dark:prose-invert max-w-none max-h-96 overflow-y-auto p-1 rounded-md border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/30 custom-scrollbar">
+              <div className="prose prose-sm dark:prose-invert max-w-none max-h-[48rem] overflow-y-auto p-1 rounded-md border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/30 custom-scrollbar">
                 {readme ? <ReactMarkdown remarkPlugins={[remarkEmoji, remarkGfm]}>{readme}</ReactMarkdown> : <p>Loading README...</p>}
               </div>
             )}
@@ -671,7 +671,7 @@ export default function Dashboard() {
         </div>
       </main>
       <footer className="text-center py-6 text-xs text-gray-500 dark:text-gray-400 border-t border-gray-200 dark:border-gray-700 mt-10">
-         {/* */}
+        {/* footer placeholder */}
       </footer>
     </div>
   );
