@@ -3,8 +3,7 @@
   ----------
   • Triggers an ad-hoc QA test by uploading the input.xlsx file to Vercel Blob
   • Dispatches the GitHub workflow with initiator, file URL, and captureVideo option
-  • Validates passphrase before proceeding
-  • Adds debug logs and improved passphrase comparison
+  • Validates passphrase before proceeding using QA_PASSPHRASE
 ───────────────────────────────────────────────────────────────────────────────*/
 
 /**
@@ -33,16 +32,8 @@ export default async function handler(req, res) {
 
   const { initiator, passphrase, file, captureVideo } = req.body;
 
-  // Log the entire request body for debugging
-  console.log('Request body:', req.body);
-
-  // Verify passphrase with improved comparison
-  const providedPassphrase = String(passphrase).trim();
-  const storedPassphrase = String(process.env.PASSPHRASE || '').trim();
-  console.log('Provided passphrase:', providedPassphrase);
-  console.log('Stored PASSPHRASE:', storedPassphrase);
-
-  if (providedPassphrase !== storedPassphrase) {
+  // Verify passphrase using QA_PASSPHRASE
+  if (passphrase !== process.env.QA_PASSPHRASE) {
     return res.status(403).json({ message: 'Invalid passphrase' });
   }
 
@@ -66,7 +57,7 @@ export default async function handler(req, res) {
       inputs: {
         initiator,
         file_url: fileUrl,
-        passphrase: process.env.PASSPHRASE,
+        passphrase: process.env.QA_PASSPHRASE,
         capture_video: String(captureVideo === true) // Pass as string
       },
     });
