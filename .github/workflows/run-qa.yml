@@ -14,6 +14,9 @@ on:
       passphrase:
         description: 'Secret phrase'
         required: true
+      capture_video:
+        description: 'Whether to capture video for ad-hoc run (true/false)'
+        default: 'false'
 
 jobs:
   qa:
@@ -55,7 +58,7 @@ jobs:
       - name: Run QA test
         continue-on-error: true  # Continue even if the test fails
         run: |
-          node api/qa-test.js input.xlsx results-${{ github.run_id }}.xlsx "${{ env.INITIATOR }}"
+          node api/qa-test.js input.xlsx results-${{ github.run_id }}.xlsx "${{ env.INITIATOR }}" "${{ inputs.capture_video }}"
 
       - name: Capture test summary and create summary.json
         run: |
@@ -101,6 +104,13 @@ jobs:
         with:
           name: screenshots-${{ github.run_id }}
           path: screenshots/*.png
+
+      - name: Upload videos artifact
+        if: github.event_name == 'workflow_dispatch' && inputs.capture_video == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: videos-${{ github.run_id }}
+          path: videos/*.webm
 
       - name: Log artifact name
         run: |

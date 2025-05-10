@@ -8,6 +8,8 @@
   • Captures screenshots for failed tests with improved timing to avoid blank images
   • Includes TC-09: Declared Rendering Error
   • Outputs success/failure counts as JSON and logs summary for workflow capture
+  • Handles cookie banner for gehealthcare.com in TC-08
+  • Supports video recording for ad-hoc runs when specified
   • Test definitions in README.md
 ───────────────────────────────────────────────────────────────────────────────*/
 
@@ -21,15 +23,17 @@ try {
   (async () => {
     /*──────────────────────────── 1. CLI / filenames ─────────────────────────────*/
     console.log('Starting QA test script');
-    const [,, inputFile, outputFile, initiatedBy] = process.argv;
+    const [,, inputFile, outputFile, initiatedBy, captureVideo] = process.argv;
     if (!inputFile || !outputFile || !initiatedBy) {
-      console.error('Usage: node api/qa-test.js <input.xlsx> <output.xlsx> <Initiated By>');
+      console.error('Usage: node api/qa-test.js <input.xlsx> <output.xlsx> <Initiated By> [captureVideo]');
       process.exit(1);
     }
 
+    const shouldRecordVideo = captureVideo === 'true';
     console.log(`\n▶ Workbook  : ${inputFile}`);
     console.log(`▶ Output    : ${outputFile}`);
-    console.log(`▶ Initiated : ${initiatedBy}\n`);
+    console.log(`▶ Initiated : ${initiatedBy}`);
+    console.log(`▶ Capture Video: ${shouldRecordVideo}\n`);
 
     /*──────────────────────────── 2. Load URL data dynamically ───────────────────*/
     console.log('Reading URLs and data from Excel file...');
@@ -93,11 +97,14 @@ try {
 
     /*──────────────────────────── 4. Playwright setup ───────────────────────────*/
     const screenshotDir = 'screenshots';
+    const videoDir = 'videos';
     if (!fs.existsSync(screenshotDir)) fs.mkdirSync(screenshotDir);
+    if (shouldRecordVideo && !fs.existsSync(videoDir)) fs.mkdirSync(videoDir);
 
     const browser = await chromium.launch();
-    const desktopCtx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
-    const mobileCtx = await browser.newContext(devices['Pixel 5']);
+    const contextOptions = shouldRecordVideo ? { recordVideo: { dir: videoDir } } : {};
+    const desktopCtx = await browser.newContext({ viewport: { width: 1280, height: 800 }, ...contextOptions });
+    const mobileCtx = await browser.newContext({ ...devices['Pixel 5'], ...contextOptions });
 
     /*──────────────────────────── 5. Helpers ─────────────────────────────────────*/
     const HTTP_REDIRECT = [301, 302];
@@ -121,6 +128,19 @@ try {
         el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
         return true;
       }, selector);
+    }
+
+    async function dismissCookieBanner(page, url) {
+      if (url.includes('gehealthcare.com')) {
+        try {
+          await page.waitForSelector('#_evidon-decline-button', { timeout: 5000 });
+          await page.click('#_evidon-decline-button');
+          console.log('Cookie banner dismissed for', url);
+          await page.waitForTimeout(1000); // Wait for banner to disappear
+        } catch (error) {
+          console.log(`No cookie banner found or error dismissing for ${url}: ${error.message}`);
+        }
+      }
     }
 
     /*──────────────────────────── 6. Per-URL runner ─────────────────────────────*/
@@ -201,6 +221,7 @@ try {
               break;
             }
             case 'TC-08': {
+              await dismissCookieBanner(pageD, url); // Dismiss cookie banner before TC-08
               const before = (await pageD.$$('form')).length;
               await pageD.waitForSelector('button.ge-contact-us-button__contactus-action-button', { timeout: 10000 });
               await pageD.click('button.ge-contact-us-button__contactus-action-button');
@@ -261,6 +282,18 @@ try {
 
       results[idx]['Page Pass?'] = validTestIds.length === 0 || validTestIds.every(id => ['Pass', 'NA'].includes(results[idx][id])) ? 'Pass' : 'Fail';
 
+      // Save video path if recording
+      if (shouldRecordVideo) {
+        const video = await pageD.video();
+        if (video) {
+          const videoPath = await video.path();
+          const safeUrl = url.replace(/[^a-zA-Z0-9]/g, '_');
+          const newVideoPath = path.join(videoDir, `${safeUrl}-${idx + 1}.webm`);
+          fs.renameSync(videoPath, newVideoPath);
+          console.log(`Video saved: ${newVideoPath}`);
+        }
+      }
+
       console.log(`     ✔ ${(Date.now() - t0) / 1000}s`);
       await pageD.close();
       await pageM.close();
@@ -278,6 +311,12 @@ try {
     const total = results.length;
     const passed = results.filter(r => r['Page Pass?'] === 'Pass').length;
     const failed = total - passed;
+    const failedUrls = results
+      .filter(r => r['Page Pass?'] === 'Fail')
+      .map(r => ({
+        url: r['URL'],
+        failedTests: allTestIds.filter(id => r[id] === 'Fail')
+      }));
 
     console.log(`\n${passed}/${total} pages passed, ${failed} failed.`);
     allTestIds.forEach(id => {
@@ -316,7 +355,9 @@ try {
       passed, 
       failed, 
       na: results.filter(r => r['Page Pass?'] === 'Not Run').length,
-      total: total // Added total for workflow compatibility
+      total,
+      failed_urls: failedUrls.map(f => f.url),
+      failed_tests: failedUrls.map(f => f.failedTests).flat()
     };
     fs.writeFileSync('summary.json', JSON.stringify(summary));
     console.log('Summary:', JSON.stringify(summary)); // Log summary for workflow capture

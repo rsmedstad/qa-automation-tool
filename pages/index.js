@@ -3,7 +3,6 @@ import Chart from 'chart.js/auto';
 import ChartDataLabels from 'chartjs-plugin-datalabels';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import Head from 'next/head';
 
 export default function Dashboard() {
   const [runs, setRuns] = useState([]);
@@ -22,6 +21,7 @@ export default function Dashboard() {
   const [isGeminiEnabled, setIsGeminiEnabled] = useState(false);
   const [geminiPassphrase, setGeminiPassphrase] = useState('');
   const [storedPassphrase, setStoredPassphrase] = useState('');
+  const [captureVideo, setCaptureVideo] = useState(false);
   const chartRef = useRef(null);
   const donutChartRef = useRef(null);
 
@@ -265,6 +265,7 @@ export default function Dashboard() {
   - GitHub Repo: https://github.com/rsmedstad/qa-automation-tool
   - GitHub Actions (QA Crawl): https://github.com/rsmedstad/qa-automation-tool/actions
   - Tests & Definitions (README.md): https://github.com/rsmedstad/qa-automation-tool/blob/main/README.md
+  - Technical specifications for how each test (TC) is conducted to answer more detailed or technical questions from users: https://github.com/rsmedstad/qa-automation-tool/blob/main/api/qa-test.js
 When answering questions about recent crawls, analyze the detailed run data provided above. Highlight specifics such as which runs failed, the number of failures, any patterns (e.g., consistent failures by a specific initiator), and specific details like failed URLs or tests if available. If the data lacks specific failure details, note that more information can be found in the artifacts. Provide a concise, relevant answer using lists or structured formatting when appropriate. Do not encourage users to leave the site; instead, use the information to directly answer their questions.`;
 
     const fullQuestion = `${systemMessage}\n\nUser Question: ${question}`;
@@ -301,6 +302,7 @@ When answering questions about recent crawls, analyze the detailed run data prov
     const initiator = formData.get('initiator');
     const passphrase = formData.get('passphrase');
     const file = formData.get('file');
+    const captureVideoChecked = formData.get('captureVideo') === 'on';
 
     if (!file || !initiator || !passphrase) {
       setRunsError('Please fill in all fields and select a file.');
@@ -320,13 +322,14 @@ When answering questions about recent crawls, analyze the detailed run data prov
         const response = await fetch('/api/trigger-test', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ initiator, passphrase, file: fileData, fileName: file.name }),
+          body: JSON.stringify({ initiator, passphrase, file: fileData, fileName: file.name, captureVideo: captureVideoChecked }),
         });
         const data = await response.json();
         if (response.ok) {
           setSubmissionStatus('Success');
           setTestStatus('Test initiated! Check GitHub Actions for progress.');
           e.target.reset();
+          setCaptureVideo(false);
         } else {
           setSubmissionStatus('Failed');
           setRunsError(data.message || 'Failed to initiate test. Please check inputs.');
@@ -416,318 +419,320 @@ When answering questions about recent crawls, analyze the detailed run data prov
   };
 
   return (
-    <>
-      <Head>
-        <link
-          rel="stylesheet"
-          href="https://fonts.googleapis.com/css2?family=Open+Sans:ital,wght@0,300..800;1,300..800&display=swap"
-        />
-      </Head>
-      <div className="min-h-screen bg-gray-100 dark:bg-gray-900 text-gray-900 dark:text-gray-100 transition-colors duration-200 font-sans">
-        <main className="container mx-auto px-2 sm:px-4 py-6 sm:py-8">
-          <div className="flex flex-col sm:flex-row justify-between items-center mb-6 sm:mb-8">
-            <h1 className="text-2xl sm:text-3xl font-bold text-gray-800 dark:text-gray-200 mb-2 sm:mb-0">QA Automation Dashboard</h1>
-            <button
-              onClick={() => setIsDarkMode(!isDarkMode)}
-              className="p-2 rounded-lg bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              aria-label="Toggle dark mode"
-            >
-              {isDarkMode ? (
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
-                </svg>
-              ) : (
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
-                </svg>
-              )}
-            </button>
-          </div>
+    <div className="min-h-screen bg-gray-100 dark:bg-gray-900 text-gray-900 dark:text-gray-100 transition-colors duration-200 font-sans">
+      <main className="container mx-auto px-2 sm:px-4 py-6 sm:py-8">
+        <div className="flex flex-col sm:flex-row justify-between items-center mb-6 sm:mb-8">
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-800 dark:text-gray-200 mb-2 sm:mb-0">QA Automation Dashboard</h1>
+          <button
+            onClick={() => setIsDarkMode(!isDarkMode)}
+            className="p-2 rounded-lg bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            aria-label="Toggle dark mode"
+          >
+            {isDarkMode ? (
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+              </svg>
+            ) : (
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+              </svg>
+            )}
+          </button>
+        </div>
 
-          <div className="space-y-6">
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-              <div className="lg:col-span-2 p-4 bg-white dark:bg-gray-800 rounded-xl shadow-lg overflow-hidden">
-                <h2 className="text-xl font-semibold mb-3 text-gray-700 dark:text-gray-300">Crawls Trended</h2>
-                <div style={{ height: '400px', width: '100%' }}>
-                  <canvas ref={chartRef}></canvas>
-                </div>
-              </div>
-              <div className="lg:col-span-1 p-4 bg-white dark:bg-gray-800 rounded-xl shadow-lg flex flex-col justify-center items-center">
-                <h2 className="text-xl font-semibold mb-3 text-gray-700 dark:text-gray-300">Crawl Types</h2>
-                <div style={{ height: '380px', width: '100%', maxWidth: '380px' }}>
-                  <canvas ref={donutChartRef}></canvas>
-                </div>
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+            <div className="lg:col-span-2 p-4 bg-white dark:bg-gray-800 rounded-xl shadow-lg overflow-hidden">
+              <h2 className="text-xl font-semibold mb-3 text-gray-700 dark:text-gray-300">Crawls Trended</h2>
+              <div style={{ height: '400px', width: '100%' }}>
+                <canvas ref={chartRef}></canvas>
               </div>
             </div>
-
-            <div className="p-4 bg-white dark:bg-gray-800 rounded-xl shadow-lg mb-6">
-              <div className="sticky top-0 bg-white dark:bg-gray-800 z-20 py-2 border-b border-gray-200 dark:border-gray-700">
-                <div className="flex justify-between items-center">
-                  <h2 className="text-xl font-semibold text-gray-700 dark:text-gray-300">Recent Crawl Information</h2>
-                  {runs.length > 5 && (
-                    <button
-                      onClick={() => setShowAll(!showAll)}
-                      className="text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 font-medium transition-colors text-sm"
-                    >
-                      {showAll ? `Collapse (${runs.length})` : `Expand (${runs.length})`}
-                    </button>
-                  )}
-                </div>
+            <div className="lg:col-span-1 p-4 bg-white dark:bg-gray-800 rounded-xl shadow-lg flex flex-col justify-center items-center">
+              <h2 className="text-xl font-semibold mb-3 text-gray-700 dark:text-gray-300">Crawl Types</h2>
+              <div style={{ height: '380px', width: '100%', maxWidth: '380px' }}>
+                <canvas ref={donutChartRef}></canvas>
               </div>
-              <div className="max-h-[26rem] overflow-y-auto">
-                {loading && !runs.length ? (
-                  <p className="text-gray-500 dark:text-gray-400 text-center py-4">Loading run data...</p>
-                ) : runsError ? (
-                  <p className="text-red-500 dark:text-red-400 text-center py-4">{runsError}</p>
-                ) : displayedRuns.length === 0 && !loading ? (
-                  <p className="text-gray-500 dark:text-gray-400 text-center py-4">No crawl data available.</p>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-sm">
-                      <thead className="sticky top-0 bg-gray-100 dark:bg-gray-700 z-10">
-                        <tr>
-                          <th className="p-3 font-semibold text-gray-600 dark:text-gray-300">Crawl Name</th>
-                          <th className="p-3 font-semibold text-gray-600 dark:text-gray-300">Date & Time</th>
-                          <th className="p-3 font-semibold text-gray-600 dark:text-gray-300">Initiator</th>
-                          <th className="p-3 font-semibold text-gray-600 dark:text-gray-300 text-center">Passed</th>
-                          <th className="p-3 font-semibold text-gray-600 dark:text-gray-300 text-center">Failed</th>
-                          <th className="p-3 font-semibold text-gray-600 dark:text-gray-300">Output Artifacts</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {displayedRuns.map((run, index) => (
-                          <tr
-                            key={run.runId || `run-${index}`}
-                            className={`border-b border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors ${
-                              index % 2 === 0 ? 'bg-white dark:bg-gray-800' : 'bg-gray-50 dark:bg-gray-800/60'
-                            }`}
-                          >
-                            <td className="p-3 whitespace-nowrap">{run.crawlName || 'N/A'}</td>
-                            <td className="p-3 whitespace-nowrap">
-                              {new Date(run.date).toLocaleString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'America/Chicago' })}
-                            </td>
-                            <td className="p-3 whitespace-nowrap">{run.initiator || 'N/A'}</td>
-                            <td className="p-3 text-green-600 dark:text-green-400 font-medium text-center">{run.successCount || 0}</td>
-                            <td className="p-3 text-red-600 dark:text-red-400 font-medium text-center">{run.failureCount || 0}</td>
-                            <td className="p-3">
-                              {run.hasArtifacts ? (
-                                <a
-                                  href={`https://github.com/rsmedstad/qa-automation-tool/actions/runs/${run.runId}`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-indigo-600 dark:text-indigo-400 hover:underline inline-flex items-center"
-                                >
-                                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                                  </svg>
-                                  View ({run.artifactCount || 0})
-                                </a>
-                              ) : (
-                                <span className="text-gray-500 dark:text-gray-400">None</span>
-                              )}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+            </div>
+          </div>
+
+          <div className="p-4 bg-white dark:bg-gray-800 rounded-xl shadow-lg mb-6">
+            <div className="sticky top-0 bg-white dark:bg-gray-800 z-20 py-2 border-b border-gray-200 dark:border-gray-700">
+              <div className="flex justify-between items-center">
+                <h2 className="text-xl font-semibold text-gray-700 dark:text-gray-300">Recent Crawl Information</h2>
+                {runs.length > 5 && (
+                  <button
+                    onClick={() => setShowAll(!showAll)}
+                    className="text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 font-medium transition-colors text-sm"
+                  >
+                    {showAll ? `Collapse (${runs.length})` : `Expand (${runs.length})`}
+                  </button>
                 )}
               </div>
             </div>
+            <div className="max-h-[26rem] overflow-y-auto">
+              {loading && !runs.length ? (
+                <p className="text-gray-500 dark:text-gray-400 text-center py-4">Loading run data...</p>
+              ) : runsError ? (
+                <p className="text-red-500 dark:text-red-400 text-center py-4">{runsError}</p>
+              ) : displayedRuns.length === 0 && !loading ? (
+                <p className="text-gray-500 dark:text-gray-400 text-center py-4">No crawl data available.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-sm">
+                    <thead className="sticky top-0 bg-gray-100 dark:bg-gray-700 z-10">
+                      <tr>
+                        <th className="p-3 font-semibold text-gray-600 dark:text-gray-300">Crawl Name</th>
+                        <th className="p-3 font-semibold text-gray-600 dark:text-gray-300">Date & Time</th>
+                        <th className="p-3 font-semibold text-gray-600 dark:text-gray-300">Initiator</th>
+                        <th className="p-3 font-semibold text-gray-600 dark:text-gray-300 text-center">Passed</th>
+                        <th className="p-3 font-semibold text-gray-600 dark:text-gray-300 text-center">Failed</th>
+                        <th className="p-3 font-semibold text-gray-600 dark:text-gray-300">Output Artifacts</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {displayedRuns.map((run, index) => (
+                        <tr
+                          key={run.runId || `run-${index}`}
+                          className={`border-b border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors ${
+                            index % 2 === 0 ? 'bg-white dark:bg-gray-800' : 'bg-gray-50 dark:bg-gray-800/60'
+                          }`}
+                        >
+                          <td className="p-3 whitespace-nowrap">{run.crawlName || 'N/A'}</td>
+                          <td className="p-3 whitespace-nowrap">
+                            {new Date(run.date).toLocaleString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'America/Chicago' })}
+                          </td>
+                          <td className="p-3 whitespace-nowrap">{run.initiator || 'N/A'}</td>
+                          <td className="p-3 text-green-600 dark:text-green-400 font-medium text-center">{run.successCount || 0}</td>
+                          <td className="p-3 text-red-600 dark:text-red-400 font-medium text-center">{run.failureCount || 0}</td>
+                          <td className="p-3">
+                            {run.hasArtifacts ? (
+                              <a
+                                href={`https://github.com/rsmedstad/qa-automation-tool/actions/runs/${run.runId}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-indigo-600 dark:text-indigo-400 hover:underline inline-flex items-center"
+                              >
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                                </svg>
+                                View ({run.artifactCount || 0})
+                              </a>
+                            ) : (
+                              <span className="text-gray-500 dark:text-gray-400">None</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="p-4 sm:p-6 bg-white dark:bg-gray-800 rounded-xl shadow-lg">
-                <h2 className="text-xl font-semibold mb-4 text-gray-700 dark:text-gray-300">Request Ad-Hoc Crawl</h2>
-                <form onSubmit={handleTestSubmit} className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" htmlFor="initiator">
-                      Your Name
-                    </label>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="p-4 sm:p-6 bg-white dark:bg-gray-800 rounded-xl shadow-lg">
+              <h2 className="text-xl font-semibold mb-4 text-gray-700 dark:text-gray-300">Request Ad-Hoc Crawl</h2>
+              <form onSubmit={handleTestSubmit} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" htmlFor="initiator">
+                    Your Name
+                  </label>
+                  <input
+                    type="text"
+                    id="initiator"
+                    name="initiator"
+                    className="w-full p-2.5 rounded-lg bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 focus:ring-indigo-500 focus:border-indigo-500 dark:focus:ring-indigo-500 dark:focus:border-indigo-500 text-sm"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" htmlFor="passphrase">
+                    Passphrase
+                  </label>
+                  <input
+                    type="text"
+                    id="passphrase"
+                    name="passphrase"
+                    className="w-full p-2.5 rounded-lg bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 focus:ring-indigo-500 focus:border-indigo-500 dark:focus:ring-indigo-500 dark:focus:border-indigo-500 text-sm"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="flex items-center text-sm font-medium text-gray-700 dark:text-gray-300">
                     <input
-                      type="text"
-                      id="initiator"
-                      name="initiator"
-                      className="w-full p-2.5 rounded-lg bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 focus:ring-indigo-500 focus:border-indigo-500 dark:focus:ring-indigo-500 dark:focus:border-indigo-500 text-sm"
-                      required
+                      type="checkbox"
+                      name="captureVideo"
+                      checked={captureVideo}
+                      onChange={(e) => setCaptureVideo(e.target.checked)}
+                      className="mr-2 h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 dark:border-gray-600 rounded"
                     />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" htmlFor="passphrase">
-                      Passphrase
-                    </label>
-                    <input
-                      type="text"
-                      id="passphrase"
-                      name="passphrase"
-                      className="w-full p-2.5 rounded-lg bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 focus:ring-indigo-500 focus:border-indigo-500 dark:focus:ring-indigo-500 dark:focus:border-indigo-500 text-sm"
-                      required
-                    />
-                  </div>
-                  <div>
+                    Capture Video
+                  </label>
+                </div>
+                <div className="flex items-center justify-between space-x-4">
+                  <div className="flex-1">
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" htmlFor="file">
                       Select input.xlsx
                     </label>
-                    <div className="flex items-center space-x-4">
-                      <div className="flex-1">
-                        <input
-                          type="file"
-                          id="file"
-                          name="file"
-                          accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                          className="w-full text-sm text-gray-500 dark:text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 dark:file:bg-indigo-800 file:text-indigo-700 dark:file:text-indigo-300 hover:file:bg-indigo-100 dark:hover:file:bg-indigo-700 cursor-pointer"
-                          required
-                        />
-                      </div>
-                      <button
-                        type="submit"
-                        disabled={submissionStatus === 'loading'}
-                        className="px-5 py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800 disabled:opacity-60"
-                      >
-                        {submissionStatus === 'loading' ? 'Submitting...' : 'Run Test'}
-                      </button>
-                    </div>
+                    <input
+                      type="file"
+                      id="file"
+                      name="file"
+                      accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                      className="w-full text-sm text-gray-500 dark:text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 dark:file:bg-indigo-800 file:text-indigo-700 dark:file:text-indigo-300 hover:file:bg-indigo-100 dark:hover:file:bg-indigo-700 cursor-pointer"
+                      required
+                    />
                   </div>
-                </form>
-                {submissionStatus && submissionStatus !== 'loading' && (
-                  <p className={`mt-3 text-sm ${submissionStatus === 'Failed' ? 'text-red-500 dark:text-red-400' : 'text-green-500 dark:text-green-400'}`}>
-                    {submissionStatus === 'Success' ? testStatus : runsError}
-                  </p>
-                )}
-              </div>
-
-              <div className="p-4 sm:p-6 bg-white dark:bg-gray-800 rounded-xl shadow-lg flex flex-col h-[400px]">
-                <div className="flex items-center mb-4">
-                  <img
-                    src="https://www.gstatic.com/lamda/images/gemini_sparkle_v002_d4735304ff6292a690345.svg"
-                    alt="Gemini Icon"
-                    className="w-6 h-6 mr-2"
-                  />
-                  <h2 className="text-xl font-semibold text-gray-700 dark:text-gray-300 open-sans">Ask Gemini</h2>
-                </div>
-                <div className="flex flex-col flex-1">
-                  <div className="flex-1 p-3 bg-gray-100 dark:bg-gray-800 rounded-lg mb-4" style={{ maxHeight: '300px', overflowY: 'auto' }}>
-                    {!isGeminiEnabled ? (
-                      loading && runs.length === 0 ? (
-                        <p className="text-sm text-gray-500 dark:text-gray-400">Loading crawl data...</p>
-                      ) : runs.length === 0 ? (
-                        <p className="text-sm text-gray-500 dark:text-gray-400">No crawls have been run yet.</p>
-                      ) : (
-                        <p className="text-sm text-gray-800 dark:text-gray-200 whitespace-pre-line">{getInsightMessage(sortedRuns[0])}</p>
-                      )
-                    ) : (
-                      <>
-                        {runs.length > 0 && (
-                          <div className="mb-2 text-left">
-                            <p className="text-sm inline-block p-2 rounded-lg bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 open-sans whitespace-pre-line">
-                              <strong>Insight: </strong>
-                              {getInsightMessage(sortedRuns[0])}
-                            </p>
-                          </div>
-                        )}
-                        {messages.length === 0 && !runs.length && (
-                          <p className="text-sm text-gray-500 dark:text-gray-400">Ask Gemini a question...</p>
-                        )}
-                        {messages.map((msg, index) => (
-                          <div key={index} className={`mb-2 ${msg.type === 'user' ? 'text-right' : 'text-left'}`}>
-                            <p
-                              className={`text-sm inline-block p-2 rounded-lg open-sans ${
-                                msg.type === 'user' ? 'bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200' : 'bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200'
-                              }`}
-                            >
-                              {msg.type === 'gemini' && <strong>Gemini: </strong>}
-                              {msg.content}
-                            </p>
-                          </div>
-                        ))}
-                      </>
-                    )}
-                  </div>
-                  {geminiError && <p className="mb-2 text-sm text-red-500 dark:text-red-400">{geminiError}</p>}
-                  {!isGeminiEnabled ? (
-                    <form onSubmit={handleEnableGemini} className="flex items-stretch">
-                      <input
-                        type="text"
-                        value={geminiPassphrase}
-                        onChange={(e) => setGeminiPassphrase(e.target.value)}
-                        placeholder="Enter passphrase to enable Gemini"
-                        className="flex-1 p-2.5 border border-gray-300 dark:border-gray-600 rounded-l-lg bg-white dark:bg-gray-900 focus:ring-indigo-500 focus:border-indigo-500 dark:focus:ring-indigo-500 dark:focus:border-indigo-500 text-sm"
-                      />
-                      <button
-                        type="submit"
-                        disabled={loading}
-                        className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-r-lg font-medium text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800 disabled:opacity-60"
-                      >
-                        {loading ? 'Enabling...' : 'Enable'}
-                      </button>
-                    </form>
-                  ) : (
-                    <div className="flex items-stretch">
-                      <textarea
-                        value={question}
-                        onChange={(e) => setQuestion(e.target.value)}
-                        onKeyDown={handleKeyDown}
-                        placeholder="Ask about test results or QA protocol..."
-                        rows="1"
-                        className="flex-1 p-2.5 border border-gray-300 dark:border-gray-600 rounded-l-lg bg-white dark:bg-gray-900 focus:ring-indigo-500 focus:border-indigo-500 dark:focus:ring-indigo-500 dark:focus:border-indigo-500 text-sm resize-none"
-                      />
-                      <button
-                        onClick={handleAskSubmit}
-                        disabled={loading || !question.trim()}
-                        className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-r-lg font-medium text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800 disabled:opacity-60"
-                      >
-                        {loading ? 'Thinking...' : 'Send'}
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            <div className="p-4 bg-white dark:bg-gray-800 rounded-xl shadow-lg mb-6">
-              <div className="sticky top-0 bg-white dark:bg-gray-800 z-20 py-2 border-b border-gray-200 dark:border-gray-700">
-                <div className="flex justify-between items-center">
-                  <h2 className="text-xl font-semibold text-gray-700 dark:text-gray-300">Test Definitions & Protocol</h2>
                   <button
-                    onClick={() => setIsTestDefsExpanded(!isTestDefsExpanded)}
-                    className="text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 font-medium transition-colors text-sm"
+                    type="submit"
+                    disabled={submissionStatus === 'loading'}
+                    className="px-5 py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800 disabled:opacity-60 self-end"
                   >
-                    {isTestDefsExpanded ? 'Collapse' : 'Expand'}
+                    {submissionStatus === 'loading' ? 'Submitting...' : 'Run Test'}
                   </button>
                 </div>
-              </div>
-              {isTestDefsExpanded && (
-                <div className="max-h-[26rem] overflow-y-auto text-sm">
-                  {readme ? (
-                    <ReactMarkdown
-                      remarkPlugins={[remarkGfm]}
-                      components={{
-                        h1: ({ node, ...props }) => <h1 className="text-2xl font-bold text-gray-800 dark:text-gray-200 mb-4" {...props} />,
-                        h2: ({ node, ...props }) => <h2 className="text-xl font-semibold text-gray-700 dark:text-gray-300 mb-3" {...props} />,
-                        h3: ({ node, ...props }) => <h3 className="text-lg font-medium text-gray-600 dark:text-gray-400 mb-2" {...props} />,
-                        p: ({ node, ...props }) => <p className="text-gray-800 dark:text-gray-200 mb-2 leading-normal" {...props} />,
-                        ul: ({ node, ...props }) => <ul className="list-disc list-inside mb-4 text-gray-800 dark:text-gray-200" {...props} />,
-                        ol: ({ node, ...props }) => <ol className="list-decimal list-inside mb-4 text-gray-800 dark:text-gray-200" {...props} />,
-                        code: ({ node, inline, ...props }) =>
-                          inline ? (
-                            <code className="bg-gray-100 dark:bg-gray-700 rounded px-1 text-gray-800 dark:text-gray-200" {...props} />
-                          ) : (
-                            <pre className="bg-gray-100 dark:bg-gray-700 rounded p-2 text-gray-800 dark:text-gray-200 overflow-x-auto" {...props} />
-                          ),
-                        a: ({ node, ...props }) => <a className="text-indigo-600 dark:text-indigo-400 hover:underline" {...props} />,
-                      }}
-                    >
-                      {readme}
-                    </ReactMarkdown>
-                  ) : (
-                    <p className="text-gray-500 dark:text-gray-400 text-center py-4">Loading README...</p>
-                  )}
-                </div>
+              </form>
+              {submissionStatus && submissionStatus !== 'loading' && (
+                <p className={`mt-3 text-sm ${submissionStatus === 'Failed' ? 'text-red-500 dark:text-red-400' : 'text-green-500 dark:text-green-400'}`}>
+                  {submissionStatus === 'Success' ? testStatus : runsError}
+                </p>
               )}
             </div>
+
+            <div className="p-4 sm:p-6 bg-white dark:bg-gray-800 rounded-xl shadow-lg flex flex-col h-[400px]">
+              <div className="flex items-center mb-4">
+                <img
+                  src="https://www.gstatic.com/lamda/images/gemini_sparkle_v002_d4735304ff6292a690345.svg"
+                  alt="Gemini Icon"
+                  className="w-6 h-6 mr-2"
+                />
+                <h2 className="text-xl font-semibold text-gray-700 dark:text-gray-300 open-sans">Ask Gemini</h2>
+              </div>
+              <div className="flex flex-col flex-1">
+                <div className="flex-1 p-3 bg-gray-100 dark:bg-gray-800 rounded-lg mb-4" style={{ maxHeight: '300px', overflowY: 'auto' }}>
+                  {!isGeminiEnabled ? (
+                    loading && runs.length === 0 ? (
+                      <p className="text-sm text-gray-500 dark:text-gray-400">Loading crawl data...</p>
+                    ) : runs.length === 0 ? (
+                      <p className="text-sm text-gray-500 dark:text-gray-400">No crawls have been run yet.</p>
+                    ) : (
+                      <p className="text-sm text-gray-800 dark:text-gray-200 whitespace-pre-line">{getInsightMessage(sortedRuns[0])}</p>
+                    )
+                  ) : (
+                    <>
+                      {runs.length > 0 && (
+                        <div className="mb-2 text-left">
+                          <p className="text-sm inline-block p-2 rounded-lg bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 open-sans whitespace-pre-line">
+                            <strong>Insight: </strong>
+                            {getInsightMessage(sortedRuns[0])}
+                          </p>
+                        </div>
+                      )}
+                      {messages.length === 0 && !runs.length && (
+                        <p className="text-sm text-gray-500 dark:text-gray-400">Ask Gemini a question...</p>
+                      )}
+                      {messages.map((msg, index) => (
+                        <div key={index} className={`mb-2 ${msg.type === 'user' ? 'text-right' : 'text-left'}`}>
+                          <p
+                            className={`text-sm inline-block p-2 rounded-lg open-sans ${
+                              msg.type === 'user' ? 'bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200' : 'bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200'
+                            }`}
+                          >
+                            {msg.type === 'gemini' && <strong>Gemini: </strong>}
+                            {msg.content}
+                          </p>
+                        </div>
+                      ))}
+                    </>
+                  )}
+                </div>
+                {geminiError && <p className="mb-2 text-sm text-red-500 dark:text-red-400">{geminiError}</p>}
+                {!isGeminiEnabled ? (
+                  <form onSubmit={handleEnableGemini} className="flex items-stretch">
+                    <input
+                      type="text"
+                      value={geminiPassphrase}
+                      onChange={(e) => setGeminiPassphrase(e.target.value)}
+                      placeholder="Enter passphrase to enable Gemini"
+                      className="flex-1 p-2.5 border border-gray-300 dark:border-gray-600 rounded-l-lg bg-white dark:bg-gray-900 focus:ring-indigo-500 focus:border-indigo-500 dark:focus:ring-indigo-500 dark:focus:border-indigo-500 text-sm"
+                    />
+                    <button
+                      type="submit"
+                      disabled={loading}
+                      className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-r-lg font-medium text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800 disabled:opacity-60"
+                    >
+                      {loading ? 'Enabling...' : 'Enable'}
+                    </button>
+                  </form>
+                ) : (
+                  <div className="flex items-stretch">
+                    <textarea
+                      value={question}
+                      onChange={(e) => setQuestion(e.target.value)}
+                      onKeyDown={handleKeyDown}
+                      placeholder="Ask about test results or QA protocol..."
+                      rows="1"
+                      className="flex-1 p-2.5 border border-gray-300 dark:border-gray-600 rounded-l-lg bg-white dark:bg-gray-900 focus:ring-indigo-500 focus:border-indigo-500 dark:focus:ring-indigo-500 dark:focus:border-indigo-500 text-sm resize-none"
+                    />
+                    <button
+                      onClick={handleAskSubmit}
+                      disabled={loading || !question.trim()}
+                      className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-r-lg font-medium text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800 disabled:opacity-60"
+                    >
+                      {loading ? 'Thinking...' : 'Send'}
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
-        </main>
-        <footer className="text-center py-6 text-xs text-gray-500 dark:text-gray-400 border-t border-gray-200 dark:border-gray-700 mt-10"></footer>
-      </div>
-    </>
+
+          <div className="p-4 bg-white dark:bg-gray-800 rounded-xl shadow-lg mb-6">
+            <div className="sticky top-0 bg-white dark:bg-gray-800 z-20 py-2 border-b border-gray-200 dark:border-gray-700">
+              <div className="flex justify-between items-center">
+                <h2 className="text-xl font-semibold text-gray-700 dark:text-gray-300">Test Definitions & Protocol</h2>
+                <button
+                  onClick={() => setIsTestDefsExpanded(!isTestDefsExpanded)}
+                  className="text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 font-medium transition-colors text-sm"
+                >
+                  {isTestDefsExpanded ? 'Collapse' : 'Expand'}
+                </button>
+              </div>
+            </div>
+            {isTestDefsExpanded && (
+              <div className="max-h-[26rem] overflow-y-auto text-sm">
+                {readme ? (
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm]}
+                    components={{
+                      h1: ({ node, ...props }) => <h1 className="text-2xl font-bold text-gray-800 dark:text-gray-200 mb-4" {...props} />,
+                      h2: ({ node, ...props }) => <h2 className="text-xl font-semibold text-gray-700 dark:text-gray-300 mb-3" {...props} />,
+                      h3: ({ node, ...props }) => <h3 className="text-lg font-medium text-gray-600 dark:text-gray-400 mb-2" {...props} />,
+                      p: ({ node, ...props }) => <div className="text-gray-800 dark:text-gray-200 mb-2 leading-normal" {...props} />,
+                      ul: ({ node, ...props }) => <ul className="list-disc list-inside mb-4 text-gray-800 dark:text-gray-200" {...props} />,
+                      ol: ({ node, ...props }) => <ol className="list-decimal list-inside mb-4 text-gray-800 dark:text-gray-200" {...props} />,
+                      code: ({ node, inline, ...props }) =>
+                        inline ? (
+                          <code className="bg-gray-100 dark:bg-gray-700 rounded px-1 text-gray-800 dark:text-gray-200" {...props} />
+                        ) : (
+                          <pre className="bg-gray-100 dark:bg-gray-700 rounded p-2 text-gray-800 dark:text-gray-200 overflow-x-auto" {...props} />
+                        ),
+                      a: ({ node, ...props }) => <a className="text-indigo-600 dark:text-indigo-400 hover:underline" {...props} />,
+                    }}
+                  >
+                    {readme}
+                  </ReactMarkdown>
+                ) : (
+                  <p className="text-gray-500 dark:text-gray-400 text-center py-4">Loading README...</p>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </main>
+      <footer className="text-center py-6 text-xs text-gray-500 dark:text-gray-400 border-t border-gray-200 dark:border-gray-700 mt-10"></footer>
+    </div>
   );
 }

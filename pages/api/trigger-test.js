@@ -1,5 +1,10 @@
-// api/trigger-test.js
-// Triggers an ad-hoc QA test by uploading the file to Vercel Blob and dispatching the GitHub workflow
+/*───────────────────────────────────────────────────────────────────────────────
+  trigger-test.js
+  ----------
+  • Triggers an ad-hoc QA test by uploading the input.xlsx file to Vercel Blob
+  • Dispatches the GitHub workflow with initiator, file URL, and captureVideo option
+  • Validates passphrase before proceeding
+───────────────────────────────────────────────────────────────────────────────*/
 
 /**
  * Uploads the input.xlsx file to Vercel Blob.
@@ -17,7 +22,7 @@ async function uploadFileToStorage(fileBuffer) {
 
 /**
  * Handles POST requests to trigger an ad-hoc QA test.
- * @param {Object} req - The request object with initiator, passphrase, and file.
+ * @param {Object} req - The request object with initiator, passphrase, file, and captureVideo.
  * @param {Object} res - The response object to send back status.
  */
 export default async function handler(req, res) {
@@ -25,7 +30,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ message: 'Method not allowed' });
   }
 
-  const { initiator, passphrase, file } = req.body;
+  const { initiator, passphrase, file, captureVideo } = req.body;
 
   // Verify passphrase
   if (passphrase !== process.env.PASSPHRASE) {
@@ -53,6 +58,7 @@ export default async function handler(req, res) {
         initiator,
         file_url: fileUrl,
         passphrase: process.env.PASSPHRASE,
+        capture_video: String(captureVideo === true) // Pass as string
       },
     });
 
