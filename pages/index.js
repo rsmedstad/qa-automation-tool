@@ -605,7 +605,7 @@ When answering questions about recent crawls, analyze the detailed run data prov
                   <h2 className="text-xl font-semibold text-gray-700 dark:text-gray-300 open-sans">Ask Gemini</h2>
                 </div>
                 <div className="flex flex-col flex-1">
-                  <div className="flex-1 p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg mb-4" style={{ maxHeight: '300px', overflowY: 'auto' }}>
+                  <div className="flex-1 p-3 bg-gray-100 dark:bg-gray-800 rounded-lg mb-4" style={{ maxHeight: '300px', overflowY: 'auto' }}>
                     {!isGeminiEnabled ? (
                       loading && runs.length === 0 ? (
                         <p className="text-sm text-gray-500 dark:text-gray-400">Loading crawl data...</p>
@@ -618,7 +618,7 @@ When answering questions about recent crawls, analyze the detailed run data prov
                       <>
                         {runs.length > 0 && (
                           <div className="mb-2 text-left">
-                            <p className="text-sm inline-block p-2 rounded-lg bg-gray-200 dark:bg-gray-600 text-gray-800 dark:text-gray-200 open-sans whitespace-pre-line">
+                            <p className="text-sm inline-block p-2 rounded-lg bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 open-sans whitespace-pre-line">
                               <strong>Insight: </strong>
                               {getInsightMessage(sortedRuns[0])}
                             </p>
@@ -631,7 +631,7 @@ When answering questions about recent crawls, analyze the detailed run data prov
                           <div key={index} className={`mb-2 ${msg.type === 'user' ? 'text-right' : 'text-left'}`}>
                             <p
                               className={`text-sm inline-block p-2 rounded-lg open-sans ${
-                                msg.type === 'user' ? 'bg-indigo-100 dark:bg-indigo-900 text-indigo-800 dark:text-indigo-200' : 'bg-gray-200 dark:bg-gray-600 text-gray-800 dark:text-gray-200'
+                                msg.type === 'user' ? 'bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200' : 'bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200'
                               }`}
                             >
                               {msg.type === 'gemini' && <strong>Gemini: </strong>}
@@ -650,7 +650,7 @@ When answering questions about recent crawls, analyze the detailed run data prov
                         value={geminiPassphrase}
                         onChange={(e) => setGeminiPassphrase(e.target.value)}
                         placeholder="Enter passphrase to enable Gemini"
-                        className="flex-1 p-2.5 border border-gray-300 dark:border-gray-600 rounded-l-lg bg-gray-50 dark:bg-gray-700 focus:ring-indigo-500 focus:border-indigo-500 dark:focus:ring-indigo-500 dark:focus:border-indigo-500 text-sm"
+                        className="flex-1 p-2.5 border border-gray-300 dark:border-gray-600 rounded-l-lg bg-white dark:bg-gray-900 focus:ring-indigo-500 focus:border-indigo-500 dark:focus:ring-indigo-500 dark:focus:border-indigo-500 text-sm"
                       />
                       <button
                         type="submit"
@@ -668,7 +668,7 @@ When answering questions about recent crawls, analyze the detailed run data prov
                         onKeyDown={handleKeyDown}
                         placeholder="Ask about test results or QA protocol..."
                         rows="1"
-                        className="flex-1 p-2.5 border border-gray-300 dark:border-gray-600 rounded-l-lg bg-gray-50 dark:bg-gray-700 focus:ring-indigo-500 focus:border-indigo-500 dark:focus:ring-indigo-500 dark:focus:border-indigo-500 text-sm resize-none"
+                        className="flex-1 p-2.5 border border-gray-300 dark:border-gray-600 rounded-l-lg bg-white dark:bg-gray-900 focus:ring-indigo-500 focus:border-indigo-500 dark:focus:ring-indigo-500 dark:focus:border-indigo-500 text-sm resize-none"
                       />
                       <button
                         onClick={handleAskSubmit}
