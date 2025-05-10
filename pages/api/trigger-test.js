@@ -4,10 +4,11 @@
   • Triggers an ad-hoc QA test by uploading the input.xlsx file to Vercel Blob
   • Dispatches the GitHub workflow with initiator, file URL, and captureVideo option
   • Validates passphrase before proceeding using QA_PASSPHRASE
+  • Uses addRandomSuffix to avoid blob filename conflicts
 ───────────────────────────────────────────────────────────────────────────────*/
 
 /**
- * Uploads the input.xlsx file to Vercel Blob.
+ * Uploads the input.xlsx file to Vercel Blob with a unique filename.
  * @param {Buffer} fileBuffer - The file buffer from the uploaded file.
  * @returns {string} The URL of the uploaded file.
  */
@@ -16,6 +17,7 @@ async function uploadFileToStorage(fileBuffer) {
   const blob = await put('input.xlsx', fileBuffer, {
     access: 'public',
     token: process.env.BLOB_READ_WRITE_TOKEN,
+    addRandomSuffix: true,  // Ensure unique filename
   });
   return blob.url;
 }
@@ -41,7 +43,7 @@ export default async function handler(req, res) {
     // Convert base64 file data to buffer
     const fileBuffer = Buffer.from(file, 'base64');
 
-    // Upload file to Vercel Blob and get URL
+    // Upload file to Vercel Blob with unique filename
     const fileUrl = await uploadFileToStorage(fileBuffer);
 
     // Dynamically import @octokit/rest
@@ -57,7 +59,7 @@ export default async function handler(req, res) {
       inputs: {
         initiator,
         file_url: fileUrl,
-        passphrase: process.env.QA_PASSPHRASE,
+        passphrase: process.env.QA_PASSPHRASE,  // Use QA_PASSPHRASE
         capture_video: String(captureVideo === true) // Pass as string
       },
     });
