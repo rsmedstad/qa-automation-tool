@@ -37,7 +37,7 @@ export default async function handler(req, res) {
         console.log(`Run ${run.id} has ${artifactCount} artifacts`);
 
         const summaryArtifact = artifacts.find(artifact => artifact.name.startsWith('summary-json'));
-        let detailedData = { passed: 0, failed: 0, na: 0 };
+        let detailedData = { passed: 0, failed: 0, na: 0, failed_urls: [], failed_tests: [] };
 
         if (summaryArtifact) {
           console.log(`Downloading artifact ${summaryArtifact.id} for run ${run.id}`);
@@ -54,6 +54,9 @@ export default async function handler(req, res) {
           if (summaryEntry) {
             detailedData = JSON.parse(summaryEntry.getData().toString('utf8'));
             console.log(`Parsed summary.json for run ${run.id}:`, detailedData);
+            // Ensure failed_urls and failed_tests are arrays, even if not present in summary.json
+            detailedData.failed_urls = detailedData.failed_urls || [];
+            detailedData.failed_tests = detailedData.failed_tests || [];
           } else {
             console.log(`No summary.json found in artifact for run ${run.id}`);
           }
@@ -71,7 +74,9 @@ export default async function handler(req, res) {
           runId: run.id,
           event: run.event,
           hasArtifacts: hasArtifacts,
-          artifactCount: artifactCount, // Added artifact count
+          artifactCount: artifactCount,
+          failed_urls: detailedData.failed_urls, // Add failed URLs
+          failed_tests: detailedData.failed_tests, // Add failed tests
         };
       } catch (runError) {
         console.error(`Error processing run ${run.id}:`, runError.message);

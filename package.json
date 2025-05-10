@@ -10,6 +10,7 @@
     "@google/generative-ai": "^0.24.1",
     "@octokit/core": "^6.1.5",
     "@octokit/rest": "^21.1.1",
+    "@tailwindcss/typography": "^0.5.16",
     "@vercel/analytics": "^1.5.0",
     "@vercel/blob": "^1.0.1",
     "@vercel/kv": "^3.0.0",
