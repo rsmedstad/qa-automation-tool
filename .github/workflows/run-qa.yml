@@ -105,8 +105,17 @@ jobs:
           name: screenshots-${{ github.run_id }}
           path: screenshots/*.png
 
+      - name: Check for video files
+        id: check_videos
+        run: |
+          if [ -n "$(ls -A videos/*.webm 2>/dev/null)" ]; then
+            echo "has_videos=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_videos=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Upload videos artifact
-        if: github.event_name == 'workflow_dispatch' && inputs.capture_video == 'true'
+        if: steps.check_videos.outputs.has_videos == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: videos-${{ github.run_id }}

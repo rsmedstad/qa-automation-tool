@@ -172,10 +172,26 @@ try {
               pass = !/position\s*:\s*absolute/i.test(inline);
               break;
             }
-            case 'TC-03': pass = !!(await page.$('header, div[class*="header"]')); break;
-            case 'TC-04': pass = !!(await page.$('nav, div[class*="nav"]')); break;
-            case 'TC-05': pass = !!(await page.$('main, div[class*="main"]')); break;
-            case 'TC-06': pass = !!(await page.$('footer, div[class*="footer"]')); break;
+            case 'TC-03': {
+              await page.waitForSelector('header, div[class*="header"]', { timeout: 30000 });
+              pass = !!(await page.$('header, div[class*="header"]'));
+              break;
+            }
+            case 'TC-04': {
+              await page.waitForSelector('nav, div[class*="nav"]', { timeout: 30000 });
+              pass = !!(await page.$('nav, div[class*="nav"]'));
+              break;
+            }
+            case 'TC-05': {
+              await page.waitForSelector('main, div[class*="main"]', { timeout: 30000 });
+              pass = !!(await page.$('main, div[class*="main"]'));
+              break;
+            }
+            case 'TC-06': {
+              await page.waitForSelector('footer, div[class*="footer"]', { timeout: 30000 });
+              pass = !!(await page.$('footer, div[class*="footer"]'));
+              break;
+            }
             case 'TC-07': {
               await page.waitForLoadState('networkidle');
               if (await page.$('video, video[data-testid="hls-video"], iframe[src*="vidyard"]')) {
@@ -196,6 +212,15 @@ try {
               break;
             }
             case 'TC-08': {
+              // Check and dismiss cookie banner if present
+              const cookieBanner = await page.$('#_evidon_banner');
+              if (cookieBanner) {
+                const declineButton = await page.$('#_evidon-decline-button');
+                if (declineButton) {
+                  await declineButton.click();
+                  await page.waitForTimeout(1000); // Wait for banner to disappear
+                }
+              }
               const before = (await page.$$('form')).length;
               await page.waitForSelector('button.ge-contact-us-button__contactus-action-button', { timeout: 10000 });
               await page.click('button.ge-contact-us-button__contactus-action-button');
@@ -291,6 +316,19 @@ try {
       if (f) console.log(`  • ${f} × ${id}`);
     });
 
+    // Collect failed URLs and failed tests
+    const failedUrls = [];
+    const failedTests = {};
+    for (const result of results) {
+      const failedTestIds = allTestIds.filter(id => result[id] === 'Fail');
+      if (failedTestIds.length > 0) {
+        failedUrls.push({ url: result['URL'], failedTests: failedTestIds });
+        failedTestIds.forEach(id => {
+          failedTests[id] = (failedTests[id] || 0) + 1;
+        });
+      }
+    }
+
     /*──────────────────────────── 9. Write new workbook ─────────────────────────*/
     const outputWorkbook = new ExcelJS.Workbook();
 
@@ -319,7 +357,9 @@ try {
       passed, 
       failed, 
       na: results.filter(r => r['Page Pass?'] === 'Not Run').length,
-      total
+      total,
+      failed_urls: failedUrls,
+      failed_tests: failedTests
     };
     fs.writeFileSync('summary.json', JSON.stringify(summary));
     console.log('Summary:', JSON.stringify(summary));

@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import Chart from 'chart.js/auto';
 import ChartDataLabels from 'chartjs-plugin-datalabels';
+import { Bar } from 'react-chartjs-2';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import Head from 'next/head';
@@ -42,7 +43,7 @@ export default function Dashboard() {
           artifactCount: run.artifactCount || 0,
           artifactsList: run.artifactsList || [],
           failed_urls: run.failed_urls || [],
-          failed_tests: run.failed_tests || [],
+          failed_tests: run.failed_tests || {},
         }));
         setRuns(sanitizedData);
       } catch (err) {
@@ -229,6 +230,67 @@ export default function Dashboard() {
     };
   }, [runs, isDarkMode]);
 
+  const FailingTestsChart = ({ failedTests }) => {
+    const hasFails = failedTests && Object.keys(failedTests).length > 0;
+
+    const data = hasFails ? {
+      labels: Object.keys(failedTests),
+      datasets: [
+        {
+          label: 'Number of Fails',
+          data: Object.values(failedTests),
+          backgroundColor: 'rgba(255, 99, 132, 0.6)',
+          borderColor: 'rgba(255, 99, 132, 1)',
+          borderWidth: 1,
+        },
+      ],
+    } : null;
+
+    const options = {
+      indexAxis: 'y',
+      scales: {
+        x: {
+          beginAtZero: true,
+          ticks: { stepSize: 1, color: isDarkMode ? 'rgba(229, 231, 235, 0.7)' : 'rgba(75, 85, 99, 0.7)' },
+          grid: { color: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)' },
+          title: { display: true, text: 'Number of Fails', color: isDarkMode ? '#E5E7EB' : '#374151', font: { size: 14, weight: 'bold' } },
+        },
+        y: {
+          ticks: { color: isDarkMode ? 'rgba(229, 231, 235, 0.7)' : 'rgba(75, 85, 99, 0.7)' },
+          grid: { color: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)' },
+        },
+      },
+      plugins: {
+        legend: { display: false },
+        datalabels: { display: true, color: isDarkMode ? '#FFFFFF' : '#000000', anchor: 'end', align: 'right', font: { weight: 'bold' }, formatter: (value) => (value > 0 ? value : '') },
+        tooltip: {
+          backgroundColor: isDarkMode ? 'rgba(40,40,40,0.9)' : 'rgba(245,245,245,0.9)',
+          titleColor: isDarkMode ? '#E5E7EB' : '#374151',
+          bodyColor: isDarkMode ? '#E5E7EB' : '#374151',
+          borderColor: isDarkMode ? '#555' : '#ccc',
+          borderWidth: 1,
+        },
+      },
+      responsive: true,
+      maintainAspectRatio: false,
+    };
+
+    return (
+      <div className="p-4 bg-white dark:bg-gray-800 rounded-xl shadow-lg">
+        <div className="py-2 border-b border-gray-200 dark:border-gray-700">
+          <h2 className="text-xl font-semibold text-gray-700 dark:text-gray-300">Latest Crawl Issues</h2>
+        </div>
+        {hasFails ? (
+          <div style={{ height: '300px' }}>
+            <Bar data={data} options={options} />
+          </div>
+        ) : (
+          <p className="text-gray-500 dark:text-gray-400 text-center py-4">No fails observed in the most recent crawl.</p>
+        )}
+      </div>
+    );
+  };
+
   const handleAskSubmit = async () => {
     if (!isGeminiEnabled || !question.trim()) return;
     setLoading(true);
@@ -249,8 +311,8 @@ export default function Dashboard() {
         minute: '2-digit',
         timeZone: 'America/Chicago',
       });
-      const failedUrls = run.failed_urls.length > 0 ? `\n  - Failed URLs: ${run.failed_urls.join(', ')}` : '';
-      const failedTests = run.failed_tests.length > 0 ? `\n  - Failed Tests: ${run.failed_tests.join(', ')}` : '';
+      const failedUrls = run.failed_urls.length > 0 ? `\n  - Failed URLs: ${run.failed_urls.map(u => u.url).join(', ')}` : '';
+      const failedTests = Object.keys(run.failed_tests).length > 0 ? `\n  - Failed Tests: ${Object.entries(run.failed_tests).map(([tc, count]) => `${tc} (${count})`).join(', ')}` : '';
       return `- Run on ${date} by ${run.initiator || 'N/A'}: ${run.successCount || 0} passed, ${run.failureCount || 0} failed, ${run.naCount || 0} N/A. Run ID: ${run.runId}. Artifacts: ${
         run.hasArtifacts ? `Available (link: https://github.com/rsmedstad/qa-automation-tool/actions/runs/${run.runId})` : 'None'
       }.${failedUrls}${failedTests}`;
@@ -393,15 +455,15 @@ When answering questions about recent crawls, analyze the detailed run data prov
     const initiator = run.initiator || 'N/A';
     const failureCount = run.failureCount || 0;
     const failedUrls = run.failed_urls || [];
-    const failedTests = run.failed_tests || [];
+    const failedTests = run.failed_tests || {};
     let message = `Last crawl on ${date} by ${initiator}: `;
     if (failureCount > 0) {
       message += `${failureCount} failure${failureCount === 1 ? '' : 's'}.\n`;
       if (failedUrls.length > 0) {
-        message += `- Failed URLs: ${failedUrls.join(', ')}\n`;
+        message += `- Failed URLs: ${failedUrls.map(u => u.url).join(', ')}\n`;
       }
-      if (failedTests.length > 0) {
-        message += `- Failed Tests: ${failedTests.join(', ')}\n`;
+      if (Object.keys(failedTests).length > 0) {
+        message += `- Failed Tests: ${Object.entries(failedTests).map(([tc, count]) => `${tc} (${count})`).join(', ')}\n`;
       }
       message += 'Note: For precise URL-to-test failure mappings, check the artifacts.';
     } else {
@@ -462,78 +524,83 @@ When answering questions about recent crawls, analyze the detailed run data prov
               </div>
             </div>
 
-            <div className="p-4 bg-white dark:bg-gray-800 rounded-xl shadow-lg mb-6">
-              <div className="sticky top-0 bg-white dark:bg-gray-800 z-20 py-2 border-b border-gray-200 dark:border-gray-700">
-                <div className="flex justify-between items-center">
-                  <h2 className="text-xl font-semibold text-gray-700 dark:text-gray-300">Recent Crawl Information</h2>
-                  {runs.length > 5 && (
-                    <button
-                      onClick={() => setShowAll(!showAll)}
-                      className="text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 font-medium transition-colors text-sm"
-                    >
-                      {showAll ? `Collapse (${runs.length})` : `Expand (${runs.length})`}
-                    </button>
+            <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 mb-6 items-start">
+              <div className="lg:col-span-1">
+                <FailingTestsChart failedTests={sortedRuns[0]?.failed_tests} />
+              </div>
+              <div className="lg:col-span-3 p-4 bg-white dark:bg-gray-800 rounded-xl shadow-lg">
+                <div className="sticky top-0 bg-white dark:bg-gray-800 z-20 py-2 border-b border-gray-200 dark:border-gray-700">
+                  <div className="flex justify-between items-center">
+                    <h2 className="text-xl font-semibold text-gray-700 dark:text-gray-300">Recent Crawl Information</h2>
+                    {runs.length > 5 && (
+                      <button
+                        onClick={() => setShowAll(!showAll)}
+                        className="text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 font-medium transition-colors text-sm"
+                      >
+                        {showAll ? `Collapse (${runs.length})` : `Expand (${runs.length})`}
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <div className="max-h-[26rem] overflow-y-auto">
+                  {loading && !runs.length ? (
+                    <p className="text-gray-500 dark:text-gray-400 text-center py-4">Loading run data...</p>
+                  ) : runsError ? (
+                    <p className="text-red-500 dark:text-red-400 text-center py-4">{runsError}</p>
+                  ) : displayedRuns.length === 0 && !loading ? (
+                    <p className="text-gray-500 dark:text-gray-400 text-center py-4">No crawl data available.</p>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-sm">
+                        <thead className="sticky top-0 bg-gray-100 dark:bg-gray-700 z-10">
+                          <tr>
+                            <th className="p-3 font-semibold text-gray-600 dark:text-gray-300">Crawl Name</th>
+                            <th className="p-3 font-semibold text-gray-600 dark:text-gray-300">Date & Time</th>
+                            <th className="p-3 font-semibold text-gray-600 dark:text-gray-300">Initiator</th>
+                            <th className="p-3 font-semibold text-gray-600 dark:text-gray-300 text-center">Passed</th>
+                            <th className="p-3 font-semibold text-gray-600 dark:text-gray-300 text-center">Failed</th>
+                            <th className="p-3 font-semibold text-gray-600 dark:text-gray-300">Output Artifacts</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {displayedRuns.map((run, index) => (
+                            <tr
+                              key={run.runId || `run-${index}`}
+                              className={`border-b border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors ${
+                                index % 2 === 0 ? 'bg-white dark:bg-gray-800' : 'bg-gray-50 dark:bg-gray-800/60'
+                              }`}
+                            >
+                              <td className="p-3 whitespace-nowrap">{run.crawlName || 'N/A'}</td>
+                              <td className="p-3 whitespace-nowrap">
+                                {new Date(run.date).toLocaleString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'America/Chicago' })}
+                              </td>
+                              <td className="p-3 whitespace-nowrap">{run.initiator || 'N/A'}</td>
+                              <td className="p-3 text-green-600 dark:text-green-400 font-medium text-center">{run.successCount || 0}</td>
+                              <td className="p-3 text-red-600 dark:text-red-400 font-medium text-center">{run.failureCount || 0}</td>
+                              <td className="p-3">
+                                {run.hasArtifacts ? (
+                                  <a
+                                    href={`https://github.com/rsmedstad/qa-automation-tool/actions/runs/${run.runId}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-indigo-600 dark:text-indigo-400 hover:underline inline-flex items-center"
+                                  >
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                                      <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                                    </svg>
+                                    View ({run.artifactCount || 0})
+                                  </a>
+                                ) : (
+                                  <span className="text-gray-500 dark:text-gray-400">None</span>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   )}
                 </div>
-              </div>
-              <div className="max-h-[26rem] overflow-y-auto">
-                {loading && !runs.length ? (
-                  <p className="text-gray-500 dark:text-gray-400 text-center py-4">Loading run data...</p>
-                ) : runsError ? (
-                  <p className="text-red-500 dark:text-red-400 text-center py-4">{runsError}</p>
-                ) : displayedRuns.length === 0 && !loading ? (
-                  <p className="text-gray-500 dark:text-gray-400 text-center py-4">No crawl data available.</p>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-sm">
-                      <thead className="sticky top-0 bg-gray-100 dark:bg-gray-700 z-10">
-                        <tr>
-                          <th className="p-3 font-semibold text-gray-600 dark:text-gray-300">Crawl Name</th>
-                          <th className="p-3 font-semibold text-gray-600 dark:text-gray-300">Date & Time</th>
-                          <th className="p-3 font-semibold text-gray-600 dark:text-gray-300">Initiator</th>
-                          <th className="p-3 font-semibold text-gray-600 dark:text-gray-300 text-center">Passed</th>
-                          <th className="p-3 font-semibold text-gray-600 dark:text-gray-300 text-center">Failed</th>
-                          <th className="p-3 font-semibold text-gray-600 dark:text-gray-300">Output Artifacts</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {displayedRuns.map((run, index) => (
-                          <tr
-                            key={run.runId || `run-${index}`}
-                            className={`border-b border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors ${
-                              index % 2 === 0 ? 'bg-white dark:bg-gray-800' : 'bg-gray-50 dark:bg-gray-800/60'
-                            }`}
-                          >
-                            <td className="p-3 whitespace-nowrap">{run.crawlName || 'N/A'}</td>
-                            <td className="p-3 whitespace-nowrap">
-                              {new Date(run.date).toLocaleString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'America/Chicago' })}
-                            </td>
-                            <td className="p-3 whitespace-nowrap">{run.initiator || 'N/A'}</td>
-                            <td className="p-3 text-green-600 dark:text-green-400 font-medium text-center">{run.successCount || 0}</td>
-                            <td className="p-3 text-red-600 dark:text-red-400 font-medium text-center">{run.failureCount || 0}</td>
-                            <td className="p-3">
-                              {run.hasArtifacts ? (
-                                <a
-                                  href={`https://github.com/rsmedstad/qa-automation-tool/actions/runs/${run.runId}`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-indigo-600 dark:text-indigo-400 hover:underline inline-flex items-center"
-                                >
-                                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                                  </svg>
-                                  View ({run.artifactCount || 0})
-                                </a>
-                              ) : (
-                                <span className="text-gray-500 dark:text-gray-400">None</span>
-                              )}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
               </div>
             </div>
 
@@ -587,7 +654,7 @@ When answering questions about recent crawls, analyze the detailed run data prov
                         accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                         className="w-full text-sm text-gray-500 dark:text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 dark:file:bg-indigo-800 file:text-indigo-700 dark:file:text-indigo-300 hover:file:bg-indigo-100 dark:hover:file:bg-indigo-700 cursor-pointer"
                         required
-                      />
+                    />
                     </div>
                     <button
                       type="submit"
