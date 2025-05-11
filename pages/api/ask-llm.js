@@ -8,7 +8,6 @@
 
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const ExcelJS = require('exceljs');
-const fetch = require('node-fetch').default;
 
 /**
  * Fetches the latest results.xlsx artifact from GitHub Actions and extracts its data.
@@ -135,8 +134,10 @@ export default async function handler(req, res) {
   try {
     console.log('Querying Gemini with question:', question);
 
-    // Dynamically import Octokit
+    // Dynamically import dependencies
     const { Octokit } = await import('@octokit/rest');
+    const fetch = (await import('node-fetch')).default;
+
     const octokit = new Octokit({ auth: githubToken });
 
     // Fetch latest results.xlsx
