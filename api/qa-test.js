@@ -6,16 +6,15 @@
   • Runs Playwright checks based on Test IDs per URL
   • Writes results and preserves all input columns (e.g., Region) in output.xlsx
   • Captures screenshots for failed tests with improved timing to avoid blank images
+  • Captures videos for all URLs, keeps only for failed tests
   • Includes TC-09: Declared Rendering Error
   • Outputs success/failure counts as JSON and logs summary for workflow capture
-  • Handles cookie banner for gehealthcare.com in TC-08
-  • Supports video recording for ad-hoc runs when specified
   • Test definitions in README.md
 ───────────────────────────────────────────────────────────────────────────────*/
 
 import os from 'os';
 import ExcelJS from 'exceljs';
-import { chromium, devices } from 'playwright';
+import { chromium } from 'playwright';
 import fs from 'fs';
 import path from 'path';
 
@@ -23,17 +22,15 @@ try {
   (async () => {
     /*──────────────────────────── 1. CLI / filenames ─────────────────────────────*/
     console.log('Starting QA test script');
-    const [,, inputFile, outputFile, initiatedBy, captureVideo] = process.argv;
+    const [,, inputFile, outputFile, initiatedBy] = process.argv;
     if (!inputFile || !outputFile || !initiatedBy) {
-      console.error('Usage: node api/qa-test.js <input.xlsx> <output.xlsx> <Initiated By> [captureVideo]');
+      console.error('Usage: node api/qa-test.js <input.xlsx> <output.xlsx> <Initiated By>');
       process.exit(1);
     }
 
-    const shouldRecordVideo = captureVideo === 'true';
     console.log(`\n▶ Workbook  : ${inputFile}`);
     console.log(`▶ Output    : ${outputFile}`);
-    console.log(`▶ Initiated : ${initiatedBy}`);
-    console.log(`▶ Capture Video: ${shouldRecordVideo}\n`);
+    console.log(`▶ Initiated : ${initiatedBy}\n`);
 
     /*──────────────────────────── 2. Load URL data dynamically ───────────────────*/
     console.log('Reading URLs and data from Excel file...');
@@ -46,12 +43,10 @@ try {
       process.exit(1);
     }
 
-    // Read header row to identify columns
     const headerRow = urlSheet.getRow(1);
-    const headers = headerRow.values.slice(1); // Skip first empty cell
+    const headers = headerRow.values.slice(1);
     console.log('Headers:', headers);
 
-    // Find the index of "Test IDs" column (case-insensitive)
     const testIdsIndex = headers.findIndex(h => h && h.toString().toLowerCase() === 'test ids');
     if (testIdsIndex === -1) {
       console.error('Column "Test IDs" not found in URLs sheet.');
@@ -60,7 +55,7 @@ try {
 
     const urlJsonData = [];
     urlSheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
-      if (rowNumber === 1) return; // Skip header
+      if (rowNumber === 1) return;
       const rowData = {};
       headers.forEach((header, index) => {
         rowData[header] = row.getCell(index + 1).value;
@@ -72,7 +67,7 @@ try {
     const urls = urlJsonData.map(row => ({
       url: row['URL'],
       testIds: (row[headers[testIdsIndex]] || '').split(',').map(id => id.trim()).filter(Boolean),
-      data: row // Store all column data
+      data: row
     }));
     console.log('Extracted URLs with Test IDs and data:', urls);
 
@@ -88,7 +83,7 @@ try {
 
     /*──────────────────────────── 3. Seed results with all columns ───────────────*/
     const results = urls.map(u => {
-      const row = { ...u.data }; // Include all input columns (e.g., Region)
+      const row = { ...u.data };
       allTestIds.forEach(id => (row[id] = 'NA'));
       row['HTTP Status'] = '-';
       row['Page Pass?'] = 'Not Run';
@@ -99,12 +94,12 @@ try {
     const screenshotDir = 'screenshots';
     const videoDir = 'videos';
     if (!fs.existsSync(screenshotDir)) fs.mkdirSync(screenshotDir);
-    if (shouldRecordVideo && !fs.existsSync(videoDir)) fs.mkdirSync(videoDir);
+    if (!fs.existsSync(videoDir)) fs.mkdirSync(videoDir);
 
     const browser = await chromium.launch();
-    const contextOptions = shouldRecordVideo ? { recordVideo: { dir: videoDir } } : {};
-    const desktopCtx = await browser.newContext({ viewport: { width: 1280, height: 800 }, ...contextOptions });
-    const mobileCtx = await browser.newContext({ ...devices['Pixel 5'], ...contextOptions });
+    const context = await browser.newContext({
+      recordVideo: { dir: videoDir }
+    });
 
     /*──────────────────────────── 5. Helpers ─────────────────────────────────────*/
     const HTTP_REDIRECT = [301, 302];
@@ -130,19 +125,6 @@ try {
       }, selector);
     }
 
-    async function dismissCookieBanner(page, url) {
-      if (url.includes('gehealthcare.com')) {
-        try {
-          await page.waitForSelector('#_evidon-decline-button', { timeout: 5000 });
-          await page.click('#_evidon-decline-button');
-          console.log('Cookie banner dismissed for', url);
-          await page.waitForTimeout(1000); // Wait for banner to disappear
-        } catch (error) {
-          console.log(`No cookie banner found or error dismissing for ${url}: ${error.message}`);
-        }
-      }
-    }
-
     /*──────────────────────────── 6. Per-URL runner ─────────────────────────────*/
     async function runUrl(urlData, idx) {
       const url = urlData.url;
@@ -150,27 +132,20 @@ try {
       console.log(`[${idx + 1}/${urls.length}] ${url}`);
       const t0 = Date.now();
 
-      const pageD = await desktopCtx.newPage();
-      const pageM = await mobileCtx.newPage();
-      let respD;
+      const page = await context.newPage();
+      let resp;
 
       try {
-        respD = await pageD.goto(url, { timeout: 30000, waitUntil: 'domcontentloaded' });
-        console.log(`Page loaded for ${url}, status: ${respD.status()}`);
+        resp = await page.goto(url, { timeout: 30000, waitUntil: 'domcontentloaded' });
+        console.log(`Page loaded for ${url}, status: ${resp.status()}`);
       } catch (error) {
         console.log(`Navigation error for ${url}: ${error.message}`);
         const safeUrl = url.replace(/[^a-zA-Z0-9]/g, '_');
-        await pageD.screenshot({ path: `${screenshotDir}/${safeUrl}-nav-error.png`, fullPage: true })
+        await page.screenshot({ path: `${screenshotDir}/${safeUrl}-nav-error.png`, fullPage: true })
           .catch(err => console.error(`Screenshot failed: ${err.message}`));
       }
 
-      try {
-        await pageM.goto(url, { timeout: 30000, waitUntil: 'domcontentloaded' });
-      } catch (error) {
-        console.log(`Mobile navigation error for ${url}: ${error.message}`);
-      }
-
-      results[idx]['HTTP Status'] = respD ? respD.status() : 'N/A';
+      results[idx]['HTTP Status'] = resp ? resp.status() : 'N/A';
       const failedTestIds = [];
 
       const validTestIds = testIds.filter(id => allTestIds.includes(id));
@@ -185,73 +160,72 @@ try {
         try {
           switch (id) {
             case 'TC-01': {
-              await pageD.waitForSelector('section.ge-homepage-hero-v2-component', { timeout: 10000 });
-              pass = await pageD.evaluate(() => {
+              await page.waitForSelector('section.ge-homepage-hero-v2-component', { timeout: 10000 });
+              pass = await page.evaluate(() => {
                 const hero = document.querySelector('section.ge-homepage-hero-v2-component');
                 return hero && [...hero.querySelectorAll('*')].some(el => getComputedStyle(el).position === 'absolute');
               });
               break;
             }
             case 'TC-02': {
-              const inline = await pageM.$eval('div[id*="ge-homepage-hero"] div[style]', e => e.getAttribute('style')).catch(() => '');
+              const inline = await page.$eval('div[id*="ge-homepage-hero"] div[style]', e => e.getAttribute('style')).catch(() => '');
               pass = !/position\s*:\s*absolute/i.test(inline);
               break;
             }
-            case 'TC-03': pass = !!(await pageD.$('header, div[class*="header"]')); break;
-            case 'TC-04': pass = !!(await pageD.$('nav, div[class*="nav"]')); break;
-            case 'TC-05': pass = !!(await pageD.$('main, div[class*="main"]')); break;
-            case 'TC-06': pass = !!(await pageD.$('footer, div[class*="footer"]')); break;
+            case 'TC-03': pass = !!(await page.$('header, div[class*="header"]')); break;
+            case 'TC-04': pass = !!(await page.$('nav, div[class*="nav"]')); break;
+            case 'TC-05': pass = !!(await page.$('main, div[class*="main"]')); break;
+            case 'TC-06': pass = !!(await page.$('footer, div[class*="footer"]')); break;
             case 'TC-07': {
-              await pageD.waitForLoadState('networkidle');
-              if (await pageD.$('video, video[data-testid="hls-video"], iframe[src*="vidyard"]')) {
+              await page.waitForLoadState('networkidle');
+              if (await page.$('video, video[data-testid="hls-video"], iframe[src*="vidyard"]')) {
                 pass = true;
                 break;
               }
-              const clickSel = await scrollAndFind(pageD, [
+              const clickSel = await scrollAndFind(page, [
                 '.ge-contentTeaser__content-section__contentTeaserHero-play-icon',
                 '.eds-rd-play', '.eds-rd-play-icon',
                 'div[data-testid="splashScreen"]',
                 '.ge-contentTeaser__content-section__contentTeaserHero__img-container'
               ]);
               if (!clickSel) { results[idx][id] = 'NA'; break; }
-              await jsClick(pageD, clickSel);
-              const modal = await pageD.waitForSelector('div.ge-modal-window, div.ge-modal-window-wrapper', { timeout: 15000 }).catch(() => null);
+              await jsClick(page, clickSel);
+              const modal = await page.waitForSelector('div.ge-modal-window, div.ge-modal-window-wrapper', { timeout: 15000 }).catch(() => null);
               if (!modal) { results[idx][id] = 'NA'; break; }
-              pass = await pageD.waitForSelector('div.vidyard-player-container, iframe[src*="play.vidyard.com"]', { timeout: 15000 }).then(() => true).catch(() => false);
+              pass = await page.waitForSelector('div.vidyard-player-container, iframe[src*="play.vidyard.com"]', { timeout: 15000 }).then(() => true).catch(() => false);
               break;
             }
             case 'TC-08': {
-              await dismissCookieBanner(pageD, url); // Dismiss cookie banner before TC-08
-              const before = (await pageD.$$('form')).length;
-              await pageD.waitForSelector('button.ge-contact-us-button__contactus-action-button', { timeout: 10000 });
-              await pageD.click('button.ge-contact-us-button__contactus-action-button');
-              pass = await pageD.waitForFunction(prev => document.querySelectorAll('form').length > prev, before, { timeout: 10000 }).then(() => true).catch(() => false);
+              const before = (await page.$$('form')).length;
+              await page.waitForSelector('button.ge-contact-us-button__contactus-action-button', { timeout: 10000 });
+              await page.click('button.ge-contact-us-button__contactus-action-button');
+              pass = await page.waitForFunction(prev => document.querySelectorAll('form').length > prev, before, { timeout: 10000 }).then(() => true).catch(() => false);
               break;
             }
             case 'TC-09': {
               const errorText = 'A rendering error occurred';
-              pass = !(await pageD.content()).includes(errorText);
+              pass = !(await page.content()).includes(errorText);
               break;
             }
-            case 'TC-10': pass = pageD.url().includes('/gatekeeper?'); break;
+            case 'TC-10': pass = page.url().includes('/gatekeeper?'); break;
             case 'TC-11': {
-              await pageD.click('div[class*="insights-list"] a').catch(() => {});
-              const r = await pageD.goto(pageD.url()).catch(() => null);
+              await page.click('div[class*="insights-list"] a').catch(() => {});
+              const r = await page.goto(page.url()).catch(() => null);
               pass = !!r && r.status() === 200;
               break;
             }
-            case 'TC-12': pass = pageD.url().includes('/account/doccheck-login'); break;
+            case 'TC-12': pass = page.url().includes('/account/doccheck-login'); break;
             case 'TC-13': {
-              await pageD.click('span.ge-cdx-header-redesign__nav-menu-item__nav-link:has-text("Produkte")');
-              await pageD.click('div.menu-content-container-item-data:has-text("Ultraschall")');
-              const more = await pageD.waitForSelector('a:has-text("Mehr erfahren")', { timeout: 10000 });
-              await Promise.all([pageD.waitForNavigation({ timeout: 10000 }), more.click()]);
-              const dest = pageD.url();
+              await page.click('span.ge-cdx-header-redesign__nav-menu-item__nav-link:has-text("Produkte")');
+              await page.click('div.menu-content-container-item-data:has-text("Ultraschall")');
+              const more = await page.waitForSelector('a:has-text("Mehr erfahren")', { timeout: 10000 });
+              await Promise.all([page.waitForNavigation({ timeout: 10000 }), more.click()]);
+              const dest = page.url();
               pass = dest.startsWith('https://www.ge-ultraschall.com/') || dest.startsWith('https://gehealthcare-ultrasound.com/');
               break;
             }
             case 'TC-14': {
-              const c = respD ? respD.status() : 0;
+              const c = resp ? resp.status() : 0;
               pass = (c >= 200 && c < 300) || HTTP_REDIRECT.includes(c);
               break;
             }
@@ -265,16 +239,14 @@ try {
         if (!pass) failedTestIds.push(id);
       }
 
-      // Capture screenshot for failed tests after all tests run
       if (failedTestIds.length > 0) {
         try {
-          // Wait for full page load and rendering
-          await pageD.waitForLoadState('networkidle', { timeout: 30000 });
-          await pageD.waitForTimeout(1000); // Additional delay for rendering
+          await page.waitForLoadState('networkidle', { timeout: 30000 });
+          await page.waitForTimeout(1000);
           const safeUrl = url.replace(/[^a-zA-Z0-9]/g, '_');
           const screenshotPath = `${screenshotDir}/${safeUrl}-failed-${failedTestIds.join(',')}.png`;
           console.log(`Capturing screenshot: ${screenshotPath}`);
-          await pageD.screenshot({ path: screenshotPath, fullPage: true });
+          await page.screenshot({ path: screenshotPath, fullPage: true });
         } catch (error) {
           console.error(`Failed to capture screenshot for ${url}: ${error.message}`);
         }
@@ -282,21 +254,22 @@ try {
 
       results[idx]['Page Pass?'] = validTestIds.length === 0 || validTestIds.every(id => ['Pass', 'NA'].includes(results[idx][id])) ? 'Pass' : 'Fail';
 
-      // Save video path if recording
-      if (shouldRecordVideo) {
-        const video = await pageD.video();
-        if (video) {
-          const videoPath = await video.path();
+      const video = await page.video();
+      if (video) {
+        const videoPath = await video.path();
+        if (failedTestIds.length > 0) {
           const safeUrl = url.replace(/[^a-zA-Z0-9]/g, '_');
           const newVideoPath = path.join(videoDir, `${safeUrl}-${idx + 1}.webm`);
           fs.renameSync(videoPath, newVideoPath);
           console.log(`Video saved: ${newVideoPath}`);
+        } else {
+          fs.unlinkSync(videoPath);
+          console.log(`Video deleted for passing URL: ${url}`);
         }
       }
 
       console.log(`     ✔ ${(Date.now() - t0) / 1000}s`);
-      await pageD.close();
-      await pageM.close();
+      await page.close();
     }
 
     /*──────────────────────────── 7. Run in batches ─────────────────────────────*/
@@ -311,12 +284,6 @@ try {
     const total = results.length;
     const passed = results.filter(r => r['Page Pass?'] === 'Pass').length;
     const failed = total - passed;
-    const failedUrls = results
-      .filter(r => r['Page Pass?'] === 'Fail')
-      .map(r => ({
-        url: r['URL'],
-        failedTests: allTestIds.filter(id => r[id] === 'Fail')
-      }));
 
     console.log(`\n${passed}/${total} pages passed, ${failed} failed.`);
     allTestIds.forEach(id => {
@@ -327,7 +294,6 @@ try {
     /*──────────────────────────── 9. Write new workbook ─────────────────────────*/
     const outputWorkbook = new ExcelJS.Workbook();
 
-    // Results sheet with all columns
     const resultSheet = outputWorkbook.addWorksheet('Results');
     const resultHeaders = [...headers, ...allTestIds, 'Page Pass?', 'HTTP Status'];
     resultSheet.getRow(1).values = resultHeaders;
@@ -337,7 +303,6 @@ try {
       resultSheet.getRow(index + 2).values = [...rowData, ...testResults, result['Page Pass?'], result['HTTP Status']];
     });
 
-    // Metadata sheet
     const metaSheet = outputWorkbook.addWorksheet('Metadata');
     metaSheet.getRow(1).values = ['Run Date', 'Run Time', 'Initiated By', 'Notes'];
     metaSheet.getRow(2).values = [
@@ -350,17 +315,14 @@ try {
     await outputWorkbook.xlsx.writeFile(outputFile);
     console.log(`\n✅ Results saved → ${outputFile}\n`);
 
-    // Summary JSON for Dashboarding
     const summary = { 
       passed, 
       failed, 
       na: results.filter(r => r['Page Pass?'] === 'Not Run').length,
-      total,
-      failed_urls: failedUrls.map(f => f.url),
-      failed_tests: failedUrls.map(f => f.failedTests).flat()
+      total
     };
     fs.writeFileSync('summary.json', JSON.stringify(summary));
-    console.log('Summary:', JSON.stringify(summary)); // Log summary for workflow capture
+    console.log('Summary:', JSON.stringify(summary));
 
     process.exit(0);
   })();

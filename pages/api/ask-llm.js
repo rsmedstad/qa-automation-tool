@@ -7,13 +7,12 @@
 ───────────────────────────────────────────────────────────────────────────────*/
 
 const { GoogleGenerativeAI } = require('@google/generative-ai');
-const { Octokit } = require('@octokit/rest');
 const ExcelJS = require('exceljs');
 const fetch = require('node-fetch').default;
 
 /**
  * Fetches the latest results.xlsx artifact from GitHub Actions and extracts its data.
- * @param {Octokit} octokit - Initialized Octokit client.
+ * @param {Object} octokit - Initialized Octokit client.
  * @returns {Object} - Parsed Excel data or null if not found.
  */
 async function fetchLatestResults(octokit) {
@@ -136,8 +135,11 @@ export default async function handler(req, res) {
   try {
     console.log('Querying Gemini with question:', question);
 
-    // Initialize Octokit and fetch latest results.xlsx
+    // Dynamically import Octokit
+    const { Octokit } = await import('@octokit/rest');
     const octokit = new Octokit({ auth: githubToken });
+
+    // Fetch latest results.xlsx
     const latestResults = await fetchLatestResults(octokit);
 
     // Prepare results summary for Gemini
