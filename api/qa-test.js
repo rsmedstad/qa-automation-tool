@@ -2,13 +2,12 @@
 /*───────────────────────────────────────────────────────────────────────────────
   qa-test.js
   ----------
-  • Reads URLs and associated data from input.xlsx using exceljs
+  • Reads URLs and data from input.xlsx using exceljs
   • Runs Playwright checks based on Test IDs per URL
-  • Writes results and preserves all input columns (e.g., Region) in output.xlsx
-  • Captures screenshots for failed tests with improved timing to avoid blank images
-  • Captures videos for all URLs, keeps only for failed tests
-  • Includes TC-09: Declared Rendering Error
-  • Outputs success/failure counts as JSON and logs summary for workflow capture
+  • Stores results in Supabase (test_runs, test_results, crawl_progress)
+  • Uploads screenshots/videos to Vercel Blob for failed tests
+  • Tracks real-time crawl progress with estimated completion
+  • Preserves Excel output for compatibility
   • Test definitions in README.md
 ───────────────────────────────────────────────────────────────────────────────*/
 
@@ -17,22 +16,29 @@ import ExcelJS from 'exceljs';
 import { chromium } from 'playwright';
 import fs from 'fs';
 import path from 'path';
+import { createClient } from '@supabase/supabase-js';
+import { put } from '@vercel/blob';
+
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+);
 
 try {
   (async () => {
-    /*──────────────────────────── 1. CLI / filenames ─────────────────────────────*/
     console.log('Starting QA test script');
     const [,, inputFile, outputFile, initiatedBy] = process.argv;
+    const captureVideo = process.argv[4] === 'true';
     if (!inputFile || !outputFile || !initiatedBy) {
-      console.error('Usage: node api/qa-test.js <input.xlsx> <output.xlsx> <Initiated By>');
+      console.error('Usage: node api/qa-test.js <input.xlsx> <output.xlsx> <Initiated By> [captureVideo]');
       process.exit(1);
     }
 
     console.log(`\n▶ Workbook  : ${inputFile}`);
     console.log(`▶ Output    : ${outputFile}`);
-    console.log(`▶ Initiated : ${initiatedBy}\n`);
+    console.log(`▶ Initiated : ${initiatedBy}`);
+    console.log(`▶ Capture Video: ${captureVideo}\n`);
 
-    /*──────────────────────────── 2. Load URL data dynamically ───────────────────*/
     console.log('Reading URLs and data from Excel file...');
     const inputWorkbook = new ExcelJS.Workbook();
     await inputWorkbook.xlsx.readFile(inputFile);
@@ -81,7 +87,6 @@ try {
       'TC-09', 'TC-10', 'TC-11', 'TC-12', 'TC-13', 'TC-14'
     ];
 
-    /*──────────────────────────── 3. Seed results with all columns ───────────────*/
     const results = urls.map(u => {
       const row = { ...u.data };
       allTestIds.forEach(id => (row[id] = 'NA'));
@@ -90,7 +95,36 @@ try {
       return row;
     });
 
-    /*──────────────────────────── 4. Playwright setup ───────────────────────────*/
+    const runId = `run-${Date.now()}`;
+    const { error: testRunError } = await supabase
+      .from('test_runs')
+      .insert({
+        run_id: runId,
+        initiated_by: initiatedBy,
+        note: 'QA test run initiated via GitHub Actions'
+      });
+    if (testRunError) {
+      console.error('Error creating test run:', testRunError);
+      process.exit(1);
+    }
+
+    const totalUrls = urls.length;
+    const startTime = new Date().toISOString();
+    const { error: progressError } = await supabase
+      .from('crawl_progress')
+      .insert({
+        run_id: runId,
+        total_urls: totalUrls,
+        urls_completed: 0,
+        started_at: startTime,
+        status: 'running',
+        status_summary: 'Your test has started.'
+      });
+    if (progressError) {
+      console.error('Error creating crawl progress:', progressError);
+      process.exit(1);
+    }
+
     const screenshotDir = 'screenshots';
     const videoDir = 'videos';
     if (!fs.existsSync(screenshotDir)) fs.mkdirSync(screenshotDir);
@@ -101,7 +135,6 @@ try {
       recordVideo: { dir: videoDir }
     });
 
-    /*──────────────────────────── 5. Helpers ─────────────────────────────────────*/
     const HTTP_REDIRECT = [301, 302];
 
     async function scrollAndFind(page, selectors, maxScreens = 10) {
@@ -125,10 +158,63 @@ try {
       }, selector);
     }
 
-    /*──────────────────────────── 6. Per-URL runner ─────────────────────────────*/
+    async function uploadFile(filePath, fileName) {
+      const fileBuffer = fs.readFileSync(filePath);
+      const blob = await put(fileName, fileBuffer, {
+        access: 'public',
+        token: process.env.BLOB_READ_WRITE_TOKEN,
+      });
+      return blob.url;
+    }
+
+    async function updateProgress(completed, startTime) {
+      const now = new Date();
+      const elapsedMs = now - new Date(startTime);
+      const urlsPerMs = completed / elapsedMs;
+      const remainingUrls = totalUrls - completed;
+      const estimatedMsLeft = remainingUrls / urlsPerMs;
+      const estimatedDone = new Date(now.getTime() + estimatedMsLeft).toISOString();
+
+      const percentage = Math.round((completed / totalUrls) * 100);
+      const minutesLeft = Math.ceil(estimatedMsLeft / 60000);
+      const statusSummary = `Your test is ${percentage}% done. Estimated time left: ${minutesLeft} minute${minutesLeft === 1 ? '' : 's'}.`;
+
+      const { error } = await supabase
+        .from('crawl_progress')
+        .update({
+          urls_completed: completed,
+          estimated_done: estimatedDone,
+          status_summary: statusSummary
+        })
+        .eq('run_id', runId);
+
+      if (error) {
+        console.error('Error updating crawl progress:', error);
+      }
+    }
+
+    async function insertTestResult(url, region, testId, result, errorDetails, screenshotPath, videoPath) {
+      const { error } = await supabase
+        .from('test_results')
+        .insert({
+          run_id: runId,
+          url,
+          region_code: region,
+          test_id: testId,
+          result,
+          error_details: errorDetails,
+          screenshot_path: screenshotPath,
+          video_path: videoPath
+        });
+      if (error) {
+        console.error('Error inserting test result:', error);
+      }
+    }
+
     async function runUrl(urlData, idx) {
       const url = urlData.url;
       const testIds = urlData.testIds;
+      const region = urlData.data['Region'] || 'N/A';
       console.log(`[${idx + 1}/${urls.length}] ${url}`);
       const t0 = Date.now();
 
@@ -157,6 +243,7 @@ try {
         if (!validTestIds.includes(id)) continue;
 
         let pass = false;
+        let errorDetails = '';
         try {
           switch (id) {
             case 'TC-01': {
@@ -212,13 +299,12 @@ try {
               break;
             }
             case 'TC-08': {
-              // Check and dismiss cookie banner if present
               const cookieBanner = await page.$('#_evidon_banner');
               if (cookieBanner) {
                 const declineButton = await page.$('#_evidon-decline-button');
                 if (declineButton) {
                   await declineButton.click();
-                  await page.waitForTimeout(1000); // Wait for banner to disappear
+                  await page.waitForTimeout(1000);
                 }
               }
               const before = (await page.$$('form')).length;
@@ -258,46 +344,66 @@ try {
         } catch (err) {
           console.log(`   EXCEPTION ${err.message}`);
           pass = false;
+          errorDetails = err.message;
         }
 
         results[idx][id] = pass ? 'Pass' : 'Fail';
+        const result = pass ? 'pass' : 'fail';
+        await insertTestResult(url, region, id, result, errorDetails, null, null);
         if (!pass) failedTestIds.push(id);
       }
 
-      if (failedTestIds.length > 0) {
+      let screenshotUrl = null;
+      let videoUrl = null;
+      if (failedTestIds.length > 0 || captureVideo) {
         try {
           await page.waitForLoadState('networkidle', { timeout: 30000 });
           await page.waitForTimeout(1000);
           const safeUrl = url.replace(/[^a-zA-Z0-9]/g, '_');
-          const screenshotPath = `${screenshotDir}/${safeUrl}-failed-${failedTestIds.join(',')}.png`;
-          console.log(`Capturing screenshot: ${screenshotPath}`);
-          await page.screenshot({ path: screenshotPath, fullPage: true });
+          if (failedTestIds.length > 0) {
+            const screenshotPath = `${screenshotDir}/${safeUrl}-failed-${failedTestIds.join(',')}.png`;
+            await page.screenshot({ path: screenshotPath, fullPage: true });
+            screenshotUrl = await uploadFile(screenshotPath, `screenshots/${path.basename(screenshotPath)}`);
+            console.log(`Screenshot uploaded: ${screenshotUrl}`);
+          }
+          const video = await page.video();
+          if (video) {
+            const videoPath = await video.path();
+            const newVideoPath = path.join(videoDir, `${safeUrl}-${idx + 1}.webm`);
+            fs.renameSync(videoPath, newVideoPath);
+            videoUrl = await uploadFile(newVideoPath, `videos/${path.basename(newVideoPath)}`);
+            console.log(`Video uploaded: ${videoUrl}`);
+          }
         } catch (error) {
-          console.error(`Failed to capture screenshot for ${url}: ${error.message}`);
+          console.error(`Failed to capture/upload media for ${url}: ${error.message}`);
         }
+      } else {
+        const video = await page.video();
+        if (video) {
+          const videoPath = await video.path();
+          if (fs.existsSync(videoPath)) {
+            fs.unlinkSync(videoPath);
+            console.log(`Video deleted for passing URL: ${url}`);
+          }
+        }
+      }
+
+      if (screenshotUrl || videoUrl) {
+        await supabase
+          .from('test_results')
+          .update({ screenshot_path: screenshotUrl, video_path: videoUrl })
+          .eq('run_id', runId)
+          .eq('url', url)
+          .in('result', ['fail']);
       }
 
       results[idx]['Page Pass?'] = validTestIds.length === 0 || validTestIds.every(id => ['Pass', 'NA'].includes(results[idx][id])) ? 'Pass' : 'Fail';
 
-      const video = await page.video();
-      if (video) {
-        const videoPath = await video.path();
-        if (failedTestIds.length > 0) {
-          const safeUrl = url.replace(/[^a-zA-Z0-9]/g, '_');
-          const newVideoPath = path.join(videoDir, `${safeUrl}-${idx + 1}.webm`);
-          fs.renameSync(videoPath, newVideoPath);
-          console.log(`Video saved: ${newVideoPath}`);
-        } else {
-          fs.unlinkSync(videoPath);
-          console.log(`Video deleted for passing URL: ${url}`);
-        }
-      }
-
+      await updateProgress(idx + 1, startTime);
       console.log(`     ✔ ${(Date.now() - t0) / 1000}s`);
       await page.close();
     }
 
-    /*──────────────────────────── 7. Run in batches ─────────────────────────────*/
     const CONCURRENCY = 2;
     for (let i = 0; i < urls.length; i += CONCURRENCY) {
       const slice = urls.slice(i, i + CONCURRENCY);
@@ -305,7 +411,15 @@ try {
       await Promise.all(slice.map((u, j) => runUrl(u, i + j)));
     }
 
-    /*──────────────────────────── 8. Summary ────────────────────────────────────*/
+    await supabase
+      .from('crawl_progress')
+      .update({
+        status: 'completed',
+        estimated_done: new Date().toISOString(),
+        status_summary: 'Your test is complete.'
+      })
+      .eq('run_id', runId);
+
     const total = results.length;
     const passed = results.filter(r => r['Page Pass?'] === 'Pass').length;
     const failed = total - passed;
@@ -316,7 +430,6 @@ try {
       if (f) console.log(`  • ${f} × ${id}`);
     });
 
-    // Collect failed URLs and failed tests
     const failedUrls = [];
     const failedTests = {};
     for (const result of results) {
@@ -329,7 +442,6 @@ try {
       }
     }
 
-    /*──────────────────────────── 9. Write new workbook ─────────────────────────*/
     const outputWorkbook = new ExcelJS.Workbook();
 
     const resultSheet = outputWorkbook.addWorksheet('Results');
@@ -359,7 +471,8 @@ try {
       na: results.filter(r => r['Page Pass?'] === 'Not Run').length,
       total,
       failed_urls: failedUrls,
-      failed_tests: failedTests
+      failed_tests: failedTests,
+      initiator: initiatedBy
     };
     fs.writeFileSync('summary.json', JSON.stringify(summary));
     console.log('Summary:', JSON.stringify(summary));

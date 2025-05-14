@@ -7,26 +7,16 @@
   • Uses addRandomSuffix to avoid blob filename conflicts
 ───────────────────────────────────────────────────────────────────────────────*/
 
-/**
- * Uploads the input.xlsx file to Vercel Blob with a unique filename.
- * @param {Buffer} fileBuffer - The file buffer from the uploaded file.
- * @returns {string} The URL of the uploaded file.
- */
 async function uploadFileToStorage(fileBuffer) {
   const { put } = await import('@vercel/blob');
   const blob = await put('input.xlsx', fileBuffer, {
     access: 'public',
     token: process.env.BLOB_READ_WRITE_TOKEN,
-    addRandomSuffix: true,  // Ensure unique filename
+    addRandomSuffix: true,
   });
   return blob.url;
 }
 
-/**
- * Handles POST requests to trigger an ad-hoc QA test.
- * @param {Object} req - The request object with initiator, passphrase, file, and captureVideo.
- * @param {Object} res - The response object to send back status.
- */
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ message: 'Method not allowed' });
@@ -34,23 +24,20 @@ export default async function handler(req, res) {
 
   const { initiator, passphrase, file, captureVideo } = req.body;
 
-  // Verify passphrase using QA_PASSPHRASE
   if (passphrase !== process.env.QA_PASSPHRASE) {
     return res.status(403).json({ message: 'Invalid passphrase' });
   }
 
   try {
-    // Convert base64 file data to buffer
-    const fileBuffer = Buffer.from(file, 'base64');
+    let fileUrl = '';
+    if (file) {
+      const fileBuffer = Buffer.from(file, 'base64');
+      fileUrl = await uploadFileToStorage(fileBuffer);
+    }
 
-    // Upload file to Vercel Blob with unique filename
-    const fileUrl = await uploadFileToStorage(fileBuffer);
-
-    // Dynamically import @octokit/rest
     const { Octokit } = await import('@octokit/rest');
     const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
 
-    // Trigger GitHub Actions workflow
     await octokit.actions.createWorkflowDispatch({
       owner: 'rsmedstad',
       repo: 'qa-automation-tool',
@@ -59,8 +46,8 @@ export default async function handler(req, res) {
       inputs: {
         initiator,
         file_url: fileUrl,
-        passphrase: process.env.QA_PASSPHRASE,  // Use QA_PASSPHRASE
-        capture_video: String(captureVideo === true) // Pass as string
+        passphrase: process.env.QA_PASSPHRASE,
+        capture_video: String(captureVideo === true)
       },
     });
 

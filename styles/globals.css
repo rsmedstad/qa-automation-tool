@@ -52,3 +52,14 @@ body {
 .dark .prose tr:nth-child(even) {
   background-color: #111827;
 }
+
+table.table-fixed {
+  table-layout: fixed;
+  width: 100%;
+}
+
+th, td {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

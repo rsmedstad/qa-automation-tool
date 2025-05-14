@@ -5,3 +5,6 @@ uploads/
 .next/
 .cursor/
 screenshots/ 
+.env
+repomix-output.xml
+repomix

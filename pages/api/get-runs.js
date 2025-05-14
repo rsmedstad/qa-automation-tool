@@ -54,9 +54,8 @@ export default async function handler(req, res) {
           if (summaryEntry) {
             detailedData = JSON.parse(summaryEntry.getData().toString('utf8'));
             console.log(`Parsed summary.json for run ${run.id}:`, detailedData);
-            // Ensure failed_urls and failed_tests are arrays, even if not present in summary.json
             detailedData.failed_urls = detailedData.failed_urls || [];
-            detailedData.failed_tests = detailedData.failed_tests || [];
+            detailedData.failed_tests = detailedData.failed_tests || {};
           } else {
             console.log(`No summary.json found in artifact for run ${run.id}`);
           }
@@ -67,7 +66,7 @@ export default async function handler(req, res) {
         return {
           crawlName: `Run #${run.run_number} - ${run.event === 'schedule' ? 'Scheduled' : 'Ad-Hoc'}`,
           date: run.created_at,
-          initiator: run.actor.login,
+          initiator: detailedData.initiator || run.actor.login,
           successCount: detailedData.passed,
           failureCount: detailedData.failed,
           naCount: detailedData.na,
@@ -75,8 +74,8 @@ export default async function handler(req, res) {
           event: run.event,
           hasArtifacts: hasArtifacts,
           artifactCount: artifactCount,
-          failed_urls: detailedData.failed_urls, // Add failed URLs
-          failed_tests: detailedData.failed_tests, // Add failed tests
+          failed_urls: detailedData.failed_urls,
+          failed_tests: detailedData.failed_tests,
         };
       } catch (runError) {
         console.error(`Error processing run ${run.id}:`, runError.message);

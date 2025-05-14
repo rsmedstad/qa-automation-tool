@@ -9,18 +9,22 @@ on:
         description: 'Name of the person initiating the test'
         required: true
       file_url:
-        description: 'URL to the input.xlsx file'
-        required: true
+        description: 'URL to the input.xlsx file (optional for standard test)'
+        required: false
       passphrase:
         description: 'Secret phrase'
         required: true
       capture_video:
-        description: 'Whether to capture video for ad-hoc run (true/false)'
+        description: 'Whether to capture video for all URLs (true/false)'
         default: 'false'
 
 jobs:
   qa:
     runs-on: ubuntu-latest
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
     steps:
       - name: Set up Node.js
         uses: actions/setup-node@v3
@@ -42,8 +46,13 @@ jobs:
       - name: Install Playwright browsers
         run: npx playwright install --with-deps
 
-      - name: Download input file for ad-hoc run
-        if: github.event_name == 'workflow_dispatch'
+      - name: Use standard input.xlsx for standard test
+        if: github.event_name == 'workflow_dispatch' && inputs.file_url == ''
+        run: |
+          cp input_template.xlsx input.xlsx
+
+      - name: Download custom input.xlsx
+        if: github.event_name == 'workflow_dispatch' && inputs.file_url != ''
         run: |
           curl -L -o input.xlsx "${{ inputs.file_url }}"
 
@@ -56,7 +65,7 @@ jobs:
           fi
 
       - name: Run QA test
-        continue-on-error: true  # Continue even if the test fails
+        continue-on-error: true
         run: |
           node api/qa-test.js input.xlsx results-${{ github.run_id }}.xlsx "${{ env.INITIATOR }}" "${{ inputs.capture_video }}"
 
