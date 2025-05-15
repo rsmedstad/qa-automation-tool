@@ -6,7 +6,7 @@
   • Implements short-term chat history using Vercel KV (last 6 turns, 1-hour TTL)
   • Validates passphrase and environment variables at startup
   • Implements confirmation layer via function calls instead of direct crawl triggers
-  • Uses Gemini 2.5 Flash with thinking budget (configurable to 1.5 if 2.5 unavailable)
+  • Uses Gemini 1.5 Flash (configurable to 2.5 if available)
   • Enhanced prompt engineering for clarity and confirmation prompts
   • Formatted context for better readability
   • Adjusted temperature for deterministic responses
@@ -217,7 +217,7 @@ ${testDefinitionsFormatted}
 **Note**: “Test 1” maps to “TC-01”, etc.`;
 
     // Construct messages array with history and new prompt
-    const messages = [
+    let messages = [
       { role: 'system', content: systemMessage },
       ...history.map(item => ({ role: item.role, content: item.content })),
       { role: 'user', content: question },
@@ -249,22 +249,27 @@ ${testDefinitionsFormatted}
 
     console.log('Initializing Google Generative AI client...');
     const genAI = new GoogleGenerativeAI(GEMINI_KEY);
-    // Using gemini-2.5-flash with thinking budget; fallback to gemini-1.5-flash if unavailable
+    // Using gemini-2.5-flash; check Gemini API docs for gemini-2.5-flash availability
     const model = genAI.getGenerativeModel({
-      model: 'gemini-2.5-flash', // Adjust if model name differs
+      model: 'gemini-2.5-flash', // Adjust to 'gemini-2.5-flash' if available
       temperature: 0.2,
-      generationConfig: {
-        // Attempt to set thinking budget (tokens for reasoning depth)
-        // Note: This is a speculative feature based on the request; remove if unsupported
-        thinkingBudget: 1024, // Adjust as needed
-      },
     });
 
     console.log('Sending request to Google API...');
-    const result = await model.generateContent({
-      contents: messages.map(msg => ({ role: msg.role, parts: [{ text: msg.content }] })),
-      tools: [{ functionDeclarations: [initiateCrawlFunction] }],
-    });
+    let result;
+    try {
+      result = await model.generateContent({
+        contents: messages.map(msg => ({ role: msg.role, parts: [{ text: msg.content }] })),
+        tools: [{ functionDeclarations: [initiateCrawlFunction] }],
+      });
+    } catch (apiError) {
+      console.error('Gemini API call failed:', {
+        message: apiError.message,
+        stack: apiError.stack,
+        response: apiError.response ? apiError.response.data : null,
+      });
+      throw new Error(`Gemini API call failed: ${apiError.message}`);
+    }
     console.log('Google API request sent.');
 
     const response = result.response;
@@ -316,7 +321,7 @@ ${testDefinitionsFormatted}
       ...history,
       { role: 'user', content: question },
       { role: 'assistant', content: assistantMsg },
-    ].slice(-12); // Keep last 12 entries (6 turns)
+    ].slice(-6); // Keep last 6 entries (3 turns)
 
     // Store updated history in Vercel KV with 1-hour TTL
     await kv.set(`chat:${sessionId}`, newHistory, { ex: 3600 });
