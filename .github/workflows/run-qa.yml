@@ -1,24 +1,34 @@
 name: Run QA Tests
 
 on:
+  schedule:
+    - cron: '0 */3 * * *'  # Runs every 3 hours
   workflow_dispatch:
     inputs:
-      excel_file:
-        description: 'Path to the Excel file containing URLs'
-        required: true
-        default: 'input.xlsx'
-      capture_video:
-        description: 'Capture video for each test run? (true/false)'
-        required: false
-        default: 'false'
       initiator:
-        description: 'Who initiated this run?'
+        description: 'Name of the person initiating the test'
         required: true
         default: 'github-action'
+      file_url:
+        description: 'URL to the input.xlsx file'
+        required: false  # Optional for scheduled runs
+      passphrase:
+        description: 'Secret phrase'
+        required: true
+      capture_video:
+        description: 'Whether to capture video for all URLs (true/false)'
+        required: true
+        type: boolean
+        default: false
 
 jobs:
   run-qa-tests:
     runs-on: ubuntu-latest
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
+      VERCEL_URL: 'https://qa-automation-tool.vercel.app'
 
     steps:
       - name: Checkout repository
@@ -29,33 +39,70 @@ jobs:
         with:
           node-version: '20'
 
+      - name: Validate pass-phrase for manual runs
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          if [ "${{ inputs.passphrase }}" != "${{ secrets.QA_PASSPHRASE }}" ]; then
+            echo "::error ::Incorrect pass-phrase"; exit 1; fi
+
       - name: Install dependencies
         run: npm ci
 
       - name: Install Playwright browsers
         run: npx playwright install --with-deps
 
-      - name: Run QA tests
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
-          VERCEL_URL: 'qa-automation-tool.vercel.app'
-          INITIATOR: ${{ github.event.inputs.initiator }}
+      - name: Download custom input.xlsx for manual runs
+        if: github.event_name == 'workflow_dispatch' && inputs.file_url != ''
         run: |
-          node api/qa-test.js ${{ github.event.inputs.excel_file }} output.xlsx "${{ github.event.inputs.initiator }}" ${{ github.event.inputs.capture_video }}
+          echo "Downloading input file from ${{ inputs.file_url }}"
+          curl -L -o input.xlsx "${{ inputs.file_url }}"
+
+      - name: Set initiator
+        run: |
+          if [ "${{ github.event_name }}" == "schedule" ]; then
+            echo "INITIATOR=scheduled" >> $GITHUB_ENV
+          else
+            echo "INITIATOR=${{ inputs.initiator }}" >> $GITHUB_ENV
+          fi
+
+      - name: Run QA tests
+        continue-on-error: true
+        run: |
+          node api/qa-test.js input.xlsx results-${{ github.run_id }}.xlsx "${{ env.INITIATOR }}" "${{ inputs.capture_video }}"
 
       - name: Upload results artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: qa-test-results
-          path: output.xlsx
+          name: qa-test-results-${{ github.run_id }}
+          path: results-${{ github.run_id }}.xlsx
+
+      - name: Upload screenshots artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots-${{ github.run_id }}
+          path: screenshots/*.png
+          if-no-files-found: ignore  # Don't fail if no screenshots
+
+      - name: Check for video files
+        id: check_videos
+        run: |
+          if [ -n "$(ls -A videos/*.webm 2>/dev/null)" ]; then
+            echo "has_videos=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_videos=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Upload videos artifact
+        if: steps.check_videos.outputs.has_videos == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: videos-${{ github.run_id }}
+          path: videos/*.webm
 
       - name: Send summary to Vercel
-        if: success() || failure()
-        env:
-          VERCEL_URL: 'https://qa-automation-tool.vercel.app'
+        if: always()
         run: |
           if [ ! -f summary.json ]; then
             echo "summary.json not found. Skipping sending summary to Vercel."
