@@ -1,136 +1,119 @@
-name: Run QA Tests
+name: QA Crawl and Report
 
 on:
-  schedule:
-    - cron: '0 */3 * * *'  # Runs every 3 hours
   workflow_dispatch:
     inputs:
-      initiator:
-        description: 'Name of the person initiating the test'
+      initiatedBy:
+        description: 'Who initiated the crawl?'
         required: true
-      file_url:
-        description: 'URL to the input.xlsx file (optional for standard test)'
-        required: false
-      passphrase:
-        description: 'Secret phrase'
+        default: 'Manual Dispatch'
+      inputFile:
+        description: 'Input Excel file path (relative to repo root)'
         required: true
-      capture_video:
-        description: 'Whether to capture video for all URLs (true/false)'
-        default: 'false'
+        default: 'input.xlsx'
+      outputFile:
+        description: 'Output Excel file path (relative to repo root)'
+        required: true
+        default: 'output.xlsx'
+      captureVideo:
+        description: 'Capture video of failed tests?'
+        required: true
+        type: boolean
+        default: false
 
 jobs:
-  qa:
+  run_qa_crawl:
     runs-on: ubuntu-latest
-    env:
-      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-      BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
+
     steps:
-      - name: Set up Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: '20'
-
-      - name: Validate pass-phrase for manual runs
-        if: github.event_name == 'workflow_dispatch'
-        run: |
-          if [ "${{ inputs.passphrase }}" != "${{ secrets.QA_PASSPHRASE }}" ]; then
-            echo "::error ::Incorrect pass-phrase"; exit 1; fi
-
-      - name: Checkout code
+      - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20' # Use a recent Node.js version
 
       - name: Install dependencies
         run: npm ci
 
       - name: Install Playwright browsers
-        run: npx playwright install --with-deps
+        run: npx playwright install --with-deps chromium
 
-      - name: Use standard input.xlsx for standard test
-        if: github.event_name == 'workflow_dispatch' && inputs.file_url == ''
+      # This step for creating input.xlsx had an incorrect conditional syntax for bash
+      # and is likely a placeholder. Assuming input.xlsx is committed or handled
+      # externally for typical runs, we will comment it out.
+      # If dynamic creation is needed, this step needs a proper bash conditional
+      # or a separate Node.js script.
+      # - name: Create input.xlsx (for testing if not provided)
+      #   run: |
+      #     node -e "
+      #       const ExcelJS = require('exceljs');
+      #       const workbook = new ExcelJS.Workbook();
+      #       const sheet = workbook.addWorksheet('URLs');
+      #       sheet.addRow(['URL', 'Region', 'Test IDs']);
+      #       sheet.addRow(['https://www.gehealthcare.com/en', 'US', 'TC-03, TC-04, TC-05, TC-06, TC-14']);
+      #       sheet.addRow(['https://www.gehealthcare.in/products/diagnostic-ecg', 'IN', 'TC-03,TC-04,TC-05,TC-06,TC-09,TC-14']);
+      #       workbook.xlsx.writeFile('input.xlsx');
+      #       console.log('Dummy input.xlsx created.');
+      #     "
+      #   if: ${{ github.event.inputs.inputFile == 'input.xlsx' }} && ! -f input.xlsx # Correct bash check
+
+      - name: Run QA Crawl
         run: |
-          # No need to copy; use input.xlsx directly
-           echo "Using existing input.xlsx"
-
-      - name: Download custom input.xlsx
-        if: github.event_name == 'workflow_dispatch' && inputs.file_url != ''
-        run: |
-          curl -L -o input.xlsx "${{ inputs.file_url }}"
-
-      - name: Set initiator
-        run: |
-          if [ "${{ github.event_name }}" == "schedule" ]; then
-            echo "INITIATOR=scheduled" >> $GITHUB_ENV
-          else
-            echo "INITIATOR=${{ inputs.initiator }}" >> $GITHUB_ENV
-          fi
-
-      - name: Run QA test
-        continue-on-error: true
-        run: |
-          node api/qa-test.js input.xlsx results-${{ github.run_id }}.xlsx "${{ env.INITIATOR }}" "${{ inputs.capture_video }}"
-
-      - name: Capture test summary and create summary.json
-        run: |
-          if [ -f summary.json ]; then
-            SUMMARY=$(cat summary.json)
-            echo "SUMMARY=$SUMMARY" >> $GITHUB_ENV
-            echo "Summary captured: $SUMMARY"
-          else
-            echo "summary.json not found, creating default summary"
-            echo '{"passed": 0, "failed": 0}' > summary.json
-            echo "SUMMARY={\"passed\": 0, \"failed\": 0}" >> $GITHUB_ENV
-          fi
-
-      - name: Upload summary JSON artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: summary-json-${{ github.run_id }}
-          path: summary.json
-
-      - name: Send summary to Vercel
+          echo "Running QA test script..."
+          # Pass inputs from the workflow_dispatch event as arguments
+          node api/qa-test.js \
+            ${{ github.event.inputs.inputFile }} \
+            ${{ github.event.inputs.outputFile }} \
+            "${{ github.event.inputs.initiatedBy }}" \
+            ${{ github.event.inputs.captureVideo }}
         env:
-          VERCEL_URL: "https://qa-automation-tool.vercel.app"
-        run: |
-          curl -X POST "$VERCEL_URL/api/store-run" \
-               -H "Content-Type: application/json" \
-               -d '{
-                 "runId": "${{ github.run_id }}",
-                 "crawlName": "QA Run ${{ github.run_id }}",
-                 "date": "${{ github.event.head_commit.timestamp || github.event.workflow_run.created_at }}",
-                 "successCount": '"$(echo $SUMMARY | jq '.passed')"',
-                 "failureCount": '"$(echo $SUMMARY | jq '.failed')"',
-                 "initiator": "${{ env.INITIATOR }}"
-               }'
+          # Ensure all necessary Supabase and Blob storage secrets are passed
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
+          VERCEL_URL: ${{ secrets.VERCEL_URL }} # Needed for the /api/store-run call
 
-      - name: Upload results artifact
+      - name: Upload Results Excel
         uses: actions/upload-artifact@v4
         with:
-          name: results-${{ github.run_id }}
-          path: results-*.xlsx
+          name: qa-crawl-results-${{ github.run_id }}
+          path: ${{ github.event.inputs.outputFile }}
+          if-no-files-found: warn # Don't fail the action if the file isn't created
 
-      - name: Upload screenshots artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: screenshots-${{ github.run_id }}
-          path: screenshots/*.png
+      # Install jq to parse JSON
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
 
-      - name: Check for video files
-        id: check_videos
+      - name: Capture test summary and set env vars
         run: |
-          if [ -n "$(ls -A videos/*.webm 2>/dev/null)" ]; then
-            echo "has_videos=true" >> $GITHUB_OUTPUT
+          echo "Capturing test run summary and setting environment variables..."
+          if [ -f summary.json ]; then
+            echo "Summary content:"
+            cat summary.json # Log the summary content
+
+            # Extract values using jq and set environment variables via GITHUB_ENV
+            # GITHUB_ENV is a special file path provided by the Actions runner.
+            # Writing lines in the format KEY=value to this file sets environment variables
+            # that are available to subsequent steps in the same job.
+            RUN_ID=$(jq -r '.runId' summary.json)
+            SUCCESS_COUNT=$(jq -r '.successCount' summary.json)
+            FAILURE_COUNT=$(jq -r '.failureCount' summary.json)
+            INITIATED_BY=$(jq -r '.initiatedBy' summary.json)
+            # You can extract other fields as needed, e.g., testFailureSummary
+
+            # Set environment variables using the correct method
+            echo "RUN_ID=${RUN_ID}" >> $GITHUB_ENV
+            echo "SUCCESS_COUNT=${SUCCESS_COUNT}" >> $GITHUB_ENV
+            echo "FAILURE_COUNT=${FAILURE_COUNT}" >> $GITHUB_ENV
+            echo "INITIATED_BY=${INITIATED_BY}" >> $GITHUB_ENV
+
+            echo "Environment variables set: RUN_ID, SUCCESS_COUNT, FAILURE_COUNT, INITIATED_BY"
+
           else
-            echo "has_videos=false" >> $GITHUB_OUTPUT
+            echo "summary.json not found. Cannot capture summary."
+            exit 1 # Fail the step if summary is missing
           fi
+        shell: bash # Ensure bash is used for features like command substitution $()
 
-      - name: Upload videos artifact
-        if: steps.check_videos.outputs.has_videos == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: videos-${{ github.run_id }}
-          path: videos/*.webm
-
-      - name: Log artifact name
-        run: |
-          echo "Results artifact uploaded as: results-${{ github.run_id }}"
