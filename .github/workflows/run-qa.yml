@@ -1,220 +1,77 @@
-# This workflow runs the QA test script, uploads results as artifacts,
-# and sends a summary to a Vercel endpoint.
 name: Run QA Tests
 
 on:
-  schedule:
-    - cron: '0 */3 * * *'  # Runs every 3 hours
   workflow_dispatch:
     inputs:
-      initiator:
-        description: 'Name of the person initiating the test'
+      excel_file:
+        description: 'Path to the Excel file containing URLs'
         required: true
-        default: 'Manual Dispatch'
-      file_url:
-        description: 'URL to the input.xlsx file (optional for standard test)'
-        required: false
-      passphrase:
-        description: 'Secret phrase'
-        required: true
+        default: 'input.xlsx'
       capture_video:
-        description: 'Whether to capture video for all URLs (true/false)'
+        description: 'Capture video for each test run? (true/false)'
+        required: false
+        default: 'false'
+      initiator:
+        description: 'Who initiated this run?'
         required: true
-        type: boolean
-        default: false
+        default: 'github-action'
 
 jobs:
-  qa:
-    runs-on: ubuntu-latest # Use the latest Ubuntu runner
-
-    # Define environment variables for the entire job where needed by multiple steps
-    env:
-      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-      BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
+  run-qa-tests:
+    runs-on: ubuntu-latest
 
     steps:
-      - name: Set up Node.js
-        # Use v4 which is the latest stable version
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20' # Use a recent LTS Node.js version
-
-      # Validate pass-phrase only for manual workflow_dispatch runs
-      - name: Validate pass-phrase for manual runs
-        if: github.event_name == 'workflow_dispatch'
-        run: |
-          # Compare the input passphrase with the secret QA_PASSPHRASE
-          if [ "${{ inputs.passphrase }}" != "${{ secrets.QA_PASSPHRASE }}" ]; then
-            # Use core commands for cleaner output and error indication
-            echo "::error title=Passphrase Validation Failed::Incorrect pass-phrase entered.";
-            exit 1;
-          else
-            echo "Passphrase validated."
-          fi
-        # Ensure the QA_PASSPHRASE secret is added to your repository secrets
-
-      - name: Checkout code
+      - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
       - name: Install dependencies
-        run: npm ci # Use ci for CI environments for faster and more reliable installs
+        run: npm ci
 
       - name: Install Playwright browsers
-        run: npx playwright install --with-deps chromium # Specify chromium browser
+        run: npx playwright install --with-deps
 
-      # Removed the 'Use standard input.xlsx' step as it was unnecessary after checkout.
-
-      # Download custom input.xlsx if file_url is provided
-      - name: Download custom input.xlsx
-        if: github.event_name == 'workflow_dispatch' && inputs.file_url != ''
-        run: |
-          echo "Downloading input file from ${{ inputs.file_url }}"
-          curl -L -o input.xlsx "${{ inputs.file_url }}"
-        # Add error handling for curl if download fails
-        # | if [ $? -ne 0 ]; then echo "::error::Failed to download input file"; exit 1; fi
-
-
-      # Set the initiator environment variable based on the trigger type
-      - name: Set initiator
-        run: |
-          if [ "${{ github.event_name }}" == "schedule" ]; then
-            echo "INITIATOR=scheduled" >> $GITHUB_ENV
-          else
-            # Use the initiator input for manual runs
-            echo "INITIATOR=${{ inputs.initiator }}" >> $GITHUB_ENV
-          fi
-          echo "Initiator set to ${{ env.INITIATOR }}"
-
-      # Run the QA test script
-      # Continue on error is set to true so subsequent steps (like sending summary) can still run
-      - name: Run QA test
-        id: run_qa_test_step # Add an ID to reference this step later if needed
-        continue-on-error: true # Allow subsequent steps to run even if the script fails
-
-        run: |
-          echo "Running QA test script..."
-          # The script expects input file, output file, initiator, capture_video as arguments
-          # Output file name is dynamically generated using run_id
-          # The capture_video input from workflow_dispatch is passed directly as a string.
-          # The Node.js script expects 'true' or 'false' string.
-          node api/qa-test.js input.xlsx results-${{ github.run_id }}.xlsx "${{ env.INITIATOR }}" "${{ inputs.capture_video }}"
+      - name: Run QA tests
         env:
-          # Pass environment variables required by qa-test.js
-          # These are already set at the job level, but explicitly listing them
-          # here can sometimes be helpful for clarity or overriding job-level vars.
-          SUPABASE_URL: ${{ env.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ env.SUPABASE_SERVICE_ROLE_KEY }}
-          BLOB_READ_WRITE_TOKEN: ${{ env.BLOB_READ_WRITE_TOKEN }}
-          VERCEL_URL: ${{ env.VERCEL_URL }} # Pass VERCEL_URL to the script if needed for /api/store-run call
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
+          VERCEL_URL: 'qa-automation-tool.vercel.app'
+          INITIATOR: ${{ github.event.inputs.initiator }}
+        run: |
+          node api/qa-test.js ${{ github.event.inputs.excel_file }} output.xlsx "${{ github.event.inputs.initiator }}" ${{ github.event.inputs.capture_video }}
 
-
-      # Upload the generated results Excel file as an artifact
       - name: Upload results artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: qa-crawl-results-${{ github.run_id }}
-          path: results-${{ github.run_id }}.xlsx # Use the specific generated filename
-          if-no-files-found: warn # Don't fail the action if the file isn't created (e.g. script failed early)
+          name: qa-test-results
+          path: output.xlsx
 
-      # Install jq to parse JSON summary file
-      - name: Install jq
-        run: sudo apt-get update && sudo apt-get install -y jq
-
-      # Capture test summary from summary.json and log it
-      # No need to store the whole JSON in an environment variable
-      - name: Log test summary
-        run: |
-          echo "Logging test run summary from summary.json..."
-          if [ -f summary.json ]; then
-            echo "Summary content:"
-            cat summary.json # Log the summary content
-          else
-            echo "summary.json not found after test run."
-          fi
-        # Note: We are no longer setting a 'SUMMARY' environment variable here.
-        # We will parse the file directly when sending data to Vercel.
-
-
-      # Upload the summary JSON file as an artifact
-      - name: Upload summary JSON artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: summary-json-${{ github.run_id }}
-          path: summary.json
-          if-no-files-found: warn # Don't fail if summary.json wasn't created
-
-
-      # Send summary data to Vercel /api/store-run endpoint
       - name: Send summary to Vercel
-        # This step requires summary.json to exist and jq to be installed.
-        # It also needs VERCEL_URL secret or hardcoded value.
-        if: success() || failure() # Run this step even if the 'Run QA test' step had continue-on-error true
+        if: success() || failure()
         env:
-          # Define Vercel URL here or at job level if used elsewhere
-          VERCEL_URL: "https://qa-automation-tool.vercel.app" # Or use ${{ secrets.VERCEL_URL }} if stored as a secret
+          VERCEL_URL: 'https://qa-automation-tool.vercel.app'
         run: |
-          # Check if summary.json exists before trying to read it
           if [ ! -f summary.json ]; then
             echo "summary.json not found. Skipping sending summary to Vercel."
-            exit 0 # Exit gracefully if summary is missing
+            exit 0
           fi
-
           echo "Sending summary to Vercel endpoint: $VERCEL_URL/api/store-run"
-
-          # Construct the JSON payload using jq to extract values from summary.json
-          # This is more robust than using a shell variable with the whole JSON.
           PAYLOAD=$(jq -c \
             --arg runId "${{ github.run_id }}" \
             --arg crawlName "QA Run ${{ github.run_id }}" \
             --arg initiator "${{ env.INITIATOR }}" \
             '. + {runId: $runId, crawlName: $crawlName, initiator: $initiator}' \
             summary.json)
-
-          # The 'date' field is already in summary.json, so we use it from there.
-          # successCount and failureCount are also from summary.json.
-
           echo "Payload:"
-          echo "$PAYLOAD" | jq . # Pretty print payload for logs
-
-          # Send the payload using curl
+          echo "$PAYLOAD" | jq .
           curl -X POST "$VERCEL_URL/api/store-run" \
                -H "Content-Type: application/json" \
                -d "$PAYLOAD" \
                --fail \
-               --show-error # Added flags: --fail makes curl exit with error on non-2xx response, --show-error shows details
-        shell: bash # Ensure bash is used
-
-
-      # Check if video files were created in the 'videos' directory
-      - name: Check for video files
-        id: check_videos # Add an ID to reference this step's outputs
-        run: |
-          # Check if the videos directory exists and contains any .webm files
-          if [ -d "videos" ] && [ -n "$(find videos -name '*.webm' -print -quit 2>/dev/null)" ]; then
-            echo "has_videos=true" >> $GITHUB_OUTPUT # Set output variable
-            echo "Video files found."
-          else
-            echo "has_videos=false" >> $GITHUB_OUTPUT # Set output variable
-            echo "No video files found."
-          fi
-        shell: bash # Ensure bash is used
-
-
-      # Upload video artifact only if videos were found
-      - name: Upload videos artifact
-        if: steps.check_videos.outputs.has_videos == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: videos-${{ github.run_id }}
-          path: videos/*.webm # Upload all webm files in the videos directory
-          if-no-files-found: ignore # Ignore if no files found, though the 'if' condition should prevent this
-
-
-      - name: Log artifact names
-        run: |
-          echo "Results artifact: qa-crawl-results-${{ github.run_id }}"
-          echo "Summary artifact: summary-json-${{ github.run_id }}"
-          if [ "${{ steps.check_videos.outputs.has_videos }}" == "true" ]; then
-            echo "Videos artifact: videos-${{ github.run_id }}"
-          fi
+               --show-error

@@ -10,3 +10,5 @@ repomix-output.xml
 repomix
 .vercel
 .env.development.local
+venv/
+.venv/
