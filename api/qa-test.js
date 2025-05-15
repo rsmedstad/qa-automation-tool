@@ -21,7 +21,7 @@ import { createClient } from '@supabase/supabase-js';
 import { put } from '@vercel/blob';
 import fetch from 'node-fetch';
 
-require('dotenv').config();
+import 'dotenv/config';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
