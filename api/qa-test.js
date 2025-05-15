@@ -22,20 +22,23 @@ import { createClient } from '@supabase/supabase-js';
 import { put } from '@vercel/blob';
 import fetch from 'node-fetch';
 
-// Corrected dotenv import for ES modules
+// Load environment variables
 import 'dotenv/config';
 
+// Initialize Supabase client
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
+// Main execution wrapped in an IIFE
 (async () => {
   try {
     console.log('Starting QA test script');
     const [,, inputFile, outputFile, initiatedBy] = process.argv;
     const captureVideo = process.argv[5] ? process.argv[5].toLowerCase() === 'true' : false;
 
+    // Validate command-line arguments
     if (!inputFile || !outputFile || !initiatedBy) {
       console.error('Usage: node api/qa-test.js <input.xlsx> <output.xlsx> <Initiated By> [captureVideo=false]');
       process.exit(1);
@@ -56,47 +59,54 @@ const supabase = createClient(
       process.exit(1);
     }
 
+    // Read and normalize headers to lowercase
     const headerRow = urlSheet.getRow(1);
-    const headers = headerRow.values.slice(1).map(h => h ? h.toString() : '').filter(h => h !== null);
-    console.log('Headers:', headers);
+    const headers = headerRow.values.map(h => h ? h.toString().trim().toLowerCase() : '').filter(Boolean);
+    console.log('Headers detected:', headers);
 
-    const testIdsIndex = headers.findIndex(h => h.toLowerCase() === 'test ids');
-    if (testIdsIndex === -1) {
-      console.error('Column "Test IDs" not found in URLs sheet.');
+    // Find column indices
+    const urlIndex = headers.indexOf('url');
+    const testIdsIndex = headers.indexOf('test ids');
+    const regionIndex = headers.indexOf('region');
+
+    if (urlIndex === -1 || testIdsIndex === -1) {
+      console.error('Required columns "URL" or "Test IDs" not found in URLs sheet.');
       process.exit(1);
     }
 
+    // Parse data rows starting from row 2
     const urlJsonData = [];
     urlSheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
-      if (rowNumber === 1) return;
+      if (rowNumber === 1) return; // Skip header row
       const rowData = {};
       headers.forEach((header, index) => {
-        const cellValue = row.getCell(index + 2).value;
+        const cellValue = row.getCell(index + 1).value; // 1-based indexing
         rowData[header] = cellValue && typeof cellValue === 'object' && cellValue.richText ?
           cellValue.richText.map(rt => rt.text).join('') :
-          (cellValue === null || cellValue === undefined ? '' : cellValue);
+          (cellValue === null || cellValue === undefined ? '' : cellValue.toString());
       });
       urlJsonData.push(rowData);
     });
-    console.log('First 5 rows of URLs sheet:', urlJsonData.slice(0, 5));
 
+    // Map URLs, Test IDs, and region data
     const urls = urlJsonData.map(row => ({
-      url: row['URL'],
-      testIds: (row[headers[testIdsIndex]] || '').toString().split(',').map(id => id.trim()).filter(Boolean),
-      data: row
+      url: row['url'],
+      testIds: (row['test ids'] || '').split(',').map(id => id.trim()).filter(Boolean),
+      data: { region: row['region'] || 'N/A' }
     }));
-    console.log('Extracted URLs with Test IDs and data:', urls);
 
     if (!urls.length) {
       console.error('No URLs found.');
       process.exit(1);
     }
 
+    // Define all possible test IDs
     const allTestIds = [
       'TC-01', 'TC-02', 'TC-03', 'TC-04', 'TC-05', 'TC-06', 'TC-07', 'TC-08',
       'TC-09', 'TC-10', 'TC-11', 'TC-12', 'TC-13', 'TC-14'
     ];
 
+    // Initialize results array
     const results = urls.map(u => {
       const row = { ...u.data };
       allTestIds.forEach(id => (row[id] = 'NA'));
@@ -105,6 +115,7 @@ const supabase = createClient(
       return row;
     });
 
+    // Create a new test run in Supabase
     const runId = `run-${Date.now()}`;
     const { error: testRunError } = await supabase
       .from('test_runs')
@@ -119,6 +130,7 @@ const supabase = createClient(
     }
     console.log(`Test Run created with ID: ${runId}`);
 
+    // Initialize crawl progress in Supabase
     const totalUrls = urls.length;
     const startTime = new Date().toISOString();
     const { error: progressError } = await supabase
@@ -135,17 +147,20 @@ const supabase = createClient(
       console.error('Error creating crawl progress:', progressError.message || progressError);
     }
 
+    // Setup directories for screenshots and videos
     const screenshotDir = 'screenshots';
     const videoDir = 'videos';
     if (!fs.existsSync(screenshotDir)) fs.mkdirSync(screenshotDir);
     if (!fs.existsSync(videoDir)) fs.mkdirSync(videoDir);
 
+    // Launch Playwright browser
     const browser = await chromium.launch();
     const contextOptions = captureVideo ? { recordVideo: { dir: videoDir } } : {};
     const context = await browser.newContext(contextOptions);
 
     const HTTP_REDIRECT = [301, 302];
 
+    // Helper function to scroll and find elements
     async function scrollAndFind(page, selectors, maxScreens = 10) {
       const viewH = await page.evaluate(() => window.innerHeight);
       for (let pass = 0; pass < maxScreens; pass++) {
@@ -157,6 +172,7 @@ const supabase = createClient(
       return null;
     }
 
+    // Helper function to perform JavaScript click
     async function jsClick(page, selector) {
       return page.evaluate(sel => {
         const el = document.querySelector(sel);
@@ -167,6 +183,7 @@ const supabase = createClient(
       }, selector);
     }
 
+    // Helper function to upload files to Vercel Blob
     async function uploadFile(filePath, destPath) {
       if (!fs.existsSync(filePath)) {
         console.error(`File not found for upload: ${filePath}`);
@@ -181,6 +198,7 @@ const supabase = createClient(
       return blob.url;
     }
 
+    // Helper function to update crawl progress
     async function updateProgress(completed, startTime) {
       const now = new Date();
       const elapsedMs = now - new Date(startTime);
@@ -205,6 +223,7 @@ const supabase = createClient(
       if (error) console.error('Error updating crawl progress:', error.message || error);
     }
 
+    // Helper function to insert test results into Supabase
     async function insertTestResult(url, region, testId, result, errorDetails, screenshotUrl, videoUrl) {
       const { error } = await supabase
         .from('test_results')
@@ -221,15 +240,16 @@ const supabase = createClient(
       if (error) console.error(`Error inserting test result for ${testId} on ${url}:`, error.message || error);
     }
 
+    // Core function to process each URL
     async function runUrl(urlData, idx) {
       const url = urlData.url;
       const testIds = urlData.testIds;
-      const region = urlData.data['Region'] || 'N/A';
+      const region = urlData.data.region; // Fixed to lowercase 'region'
       console.log(`[${idx + 1}/${urls.length}] ${url}`);
       const t0 = Date.now();
 
-      // Validate URL
-      if (!url || !url.startsWith('http')) {
+      // Validate URL using regex
+      if (!url || !/^https?:\/\//.test(url)) {
         console.log(`Invalid URL: ${url}`);
         results[idx]['HTTP Status'] = 'Invalid URL';
         for (const id of testIds) {
@@ -539,7 +559,7 @@ const supabase = createClient(
       await page.close();
     }
 
-    // Batching & execution
+    // Process URLs in batches to limit concurrency
     const CONCURRENCY = 2;
     const urlBatches = [];
     for (let i = 0; i < urls.length; i += CONCURRENCY) {
@@ -554,6 +574,7 @@ const supabase = createClient(
       );
     }
 
+    // Finalize crawl progress
     await supabase
       .from('crawl_progress')
       .update({
@@ -563,6 +584,7 @@ const supabase = createClient(
       })
       .eq('run_id', runId);
 
+    // Generate summary
     const total = results.length;
     const passed = results.filter(r => r['Page Pass?'] === 'Pass').length;
     const failed = results.filter(r => r['Page Pass?'] === 'Fail').length;
@@ -582,10 +604,11 @@ const supabase = createClient(
     for (const result of results) {
       if (result['Page Pass?'] === 'Fail') {
         const failedTestsForUrl = allTestIds.filter(id => result[id] === 'Fail');
-        failedUrlsList.push({ url: result['URL'], failedTests: failedTestsForUrl });
+        failedUrlsList.push({ url: result['url'], failedTests: failedTestsForUrl });
       }
     }
 
+    // Prepare payload for store-run API
     const payload = {
       runId: runId,
       crawlName: 'QA Run',
@@ -597,6 +620,7 @@ const supabase = createClient(
       failedUrls: failedUrlsList
     };
 
+    // Send payload to store-run endpoint
     const storeRunBaseUrl = process.env.VERCEL_URL && !process.env.VERCEL_URL.startsWith('http')
       ? `https://${process.env.VERCEL_URL}`
       : process.env.VERCEL_URL || 'http://localhost:3000';
@@ -615,6 +639,7 @@ const supabase = createClient(
       console.log('Successfully stored run summary via API.');
     }
 
+    // Write results to Excel
     const outputWorkbook = new ExcelJS.Workbook();
     const resultSheet = outputWorkbook.addWorksheet('Results');
     const outputHeaders = [...headers, ...allTestIds, 'Page Pass?', 'HTTP Status'];
@@ -641,10 +666,12 @@ const supabase = createClient(
     await outputWorkbook.xlsx.writeFile(outputFile);
     console.log(`\n✅ Results saved → ${outputFile}\n`);
 
+    // Save summary as JSON
     const summaryFilePath = 'summary.json';
     fs.writeFileSync(summaryFilePath, JSON.stringify(payload, null, 2));
     console.log(`Run summary saved to ${summaryFilePath}`);
 
+    // Cleanup
     await context.close();
     await browser.close();
 
