@@ -2,6 +2,7 @@
 import ExcelJS from 'exceljs';
 import { put } from '@vercel/blob';
 import { Octokit } from '@octokit/rest';
+import { v4 as uuidv4 } from 'uuid'; // Import UUID
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -46,6 +47,7 @@ export default async function handler(req, res) {
 
     // Trigger GitHub Action
     const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
+    const newRunId = `run-${uuidv4()}`; // Use UUID for runId
     const response = await octokit.actions.createWorkflowDispatch({
       owner: 'rsmedstad',
       repo: 'qa-automation-tool',
@@ -59,7 +61,7 @@ export default async function handler(req, res) {
       },
     });
 
-    res.status(200).json({ message: 'Crawl initiated', runId: `run-${Date.now()}` });
+    res.status(200).json({ message: 'Crawl initiated', runId: newRunId });
   } catch (error) {
     console.error('Error triggering crawl:', error);
     res.status(500).json({ message: 'Failed to trigger crawl', error: error.message });

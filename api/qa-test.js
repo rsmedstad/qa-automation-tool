@@ -8,6 +8,7 @@
   • Uploads screenshots/videos to Vercel Blob for failed tests
   • Tracks real-time crawl progress with estimated completion
   • Preserves Excel output for compatibility
+  • Sends standardized payload to /api/store-run
   • Test definitions in README.md
 ───────────────────────────────────────────────────────────────────────────────*/
 
@@ -18,6 +19,9 @@ import fs from 'fs';
 import path from 'path';
 import { createClient } from '@supabase/supabase-js';
 import { put } from '@vercel/blob';
+import fetch from 'node-fetch';
+
+require('dotenv').config();
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -226,7 +230,7 @@ try {
         console.log(`Page loaded for ${url}, status: ${resp.status()}`);
       } catch (error) {
         console.log(`Navigation error for ${url}: ${error.message}`);
-        const safeUrl = url.replace(/[^a-zA-Z0-9]/g, '_');
+        const safeUrl = url.replace(/[^a-zA-Z0.9]/g, '_');
         await page.screenshot({ path: `${screenshotDir}/${safeUrl}-nav-error.png`, fullPage: true })
           .catch(err => console.error(`Screenshot failed: ${err.message}`));
       }
@@ -423,8 +427,9 @@ try {
     const total = results.length;
     const passed = results.filter(r => r['Page Pass?'] === 'Pass').length;
     const failed = total - passed;
+    const na = results.filter(r => r['Page Pass?'] === 'Not Run').length;
 
-    console.log(`\n${passed}/${total} pages passed, ${failed} failed.`);
+    console.log(`\n${passed}/${total} pages passed, ${failed} failed, ${na} N/A.`);
     allTestIds.forEach(id => {
       const f = results.filter(r => r[id] === 'Fail').length;
       if (f) console.log(`  • ${f} × ${id}`);
@@ -440,6 +445,29 @@ try {
           failedTests[id] = (failedTests[id] || 0) + 1;
         });
       }
+    }
+
+    // Construct and send payload to /api/store-run
+    const payload = {
+      runId: runId,
+      crawlName: 'QA Run',
+      date: new Date().toISOString(),
+      successCount: passed,
+      failureCount: failed,
+      initiator: initiatedBy,
+    };
+
+    const storeRunUrl = `${process.env.VERCEL_URL || 'http://localhost:3000'}/api/store-run`;
+    const response = await fetch(storeRunUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      console.error(`Failed to store run: ${response.statusText}`);
+    } else {
+      console.log('Successfully stored run in Vercel KV');
     }
 
     const outputWorkbook = new ExcelJS.Workbook();
@@ -468,7 +496,7 @@ try {
     const summary = { 
       passed, 
       failed, 
-      na: results.filter(r => r['Page Pass?'] === 'Not Run').length,
+      na,
       total,
       failed_urls: failedUrls,
       failed_tests: failedTests,

@@ -18,19 +18,18 @@ export default async function handler(req, res) {
 
     console.log('Raw Supabase data:', data);
 
-    // Set both testDefinitions and sfTests to the full list of tests
+    // Set testDefinitions to the full list of tests
     const testDefinitions = data;
-    const sfTests = data;
 
     console.log('testDefinitions:', testDefinitions);
-    console.log('sfTests:', sfTests);
 
     // Prevent caching issues
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Expires', '0');
 
-    res.status(200).json({ testDefinitions: testDefinitions || [], sfTests: sfTests || [] });
+    // Send testDefinitions as both testDefinitions and sfTests since they are identical
+    res.status(200).json({ testDefinitions: testDefinitions || [], sfTests: testDefinitions || [] });
   } catch (error) {
     console.error('Error in /api/get-test-definitions:', error.message);
     res.status(500).json({ message: 'Internal server error', details: error.message });
