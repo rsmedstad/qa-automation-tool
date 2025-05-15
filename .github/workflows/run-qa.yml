@@ -49,7 +49,8 @@ jobs:
       - name: Use standard input.xlsx for standard test
         if: github.event_name == 'workflow_dispatch' && inputs.file_url == ''
         run: |
-          cp input_template.xlsx input.xlsx
+          # No need to copy; use input.xlsx directly
+           echo "Using existing input.xlsx"
 
       - name: Download custom input.xlsx
         if: github.event_name == 'workflow_dispatch' && inputs.file_url != ''

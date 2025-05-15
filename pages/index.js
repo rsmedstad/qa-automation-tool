@@ -302,45 +302,11 @@ export default function Dashboard() {
     setAskLoading(true);
     setGeminiError('');
 
-    const recentRuns = sortedRuns.slice(0, 3);
-    const passedRuns = recentRuns.filter((run) => run.failureCount === 0).length;
-    const failedRuns = recentRuns.filter((run) => run.failureCount > 0).length;
-
-    const runDetails = recentRuns.map((run) => {
-      const date = new Date(run.date).toLocaleString('en-US', {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-        timeZone: 'America/Chicago',
-      });
-      const failedUrls = run.failed_urls.length > 0 ? `\n  - Failed URLs: ${run.failed_urls.map(u => u.url).join(', ')}` : '';
-      const failedTests = Object.keys(run.failed_tests).length > 0 ? `\n  - Failed Tests: ${Object.entries(run.failed_tests).map(([tc, count]) => `${tc} (${count})`).join(', ')}` : '';
-      return `- Run on ${date} by ${run.initiator || 'N/A'}: ${run.successCount || 0} passed, ${run.failureCount || 0} failed, ${run.naCount || 0} N/A. Run ID: ${run.runId}. Artifacts: ${
-        run.hasArtifacts ? `Available (link: https://github.com/rsmedstad/qa-automation-tool/actions/runs/${run.runId})` : 'None'
-      }.${failedUrls}${failedTests}`;
-    }).join('\n');
-
-    const runSummary = `Recent QA crawls overview: Out of the last ${recentRuns.length} runs, ${passedRuns} had no failures, and ${failedRuns} had at least one failure.\nDetailed Runs:\n${runDetails}`;
-
-    const systemMessage = `You are an AI assistant for the QA Automation Tool by rsmedstad. You should try to answer succinctly and utilize list format or style-enhancing elements when appropriate. For any questions about 'runs', 'crawls', 'QAs', or the tool's performance, always review and consider the following:
-- ${runSummary}
-- Resources for additional context:
-  - Vercel Dashboard: https://qa-automation-tool.vercel.app/
-  - GitHub Repo: https://github.com/rsmedstad/qa-automation-tool
-  - GitHub Actions (QA Crawl): https://github.com/rsmedstad/qa-automation-tool/actions
-  - Tests & Definitions (README.md): https://github.com/rsmedstad/qa-automation-tool/blob/main/README.md
-  - Technical specifications for how each test (TC) is conducted to answer more detailed or technical questions from users: https://github.com/rsmedstad/qa-automation-tool/blob/main/api/qa-test.js
-When answering questions about recent crawls, analyze the detailed run data provided above. Highlight specifics such as which runs failed, the number of failures, any patterns (e.g., consistent failures by a specific initiator), and specific details like failed URLs or tests if available. If the data lacks specific failure details, note that more information can be found in the artifacts. Provide a concise, relevant answer using lists or structured formatting when appropriate. Do not encourage users to leave the site; instead, use the information to directly answer their questions.`;
-
-    const fullQuestion = `${systemMessage}\n\nUser Question: ${userQuestion}`;
-
     try {
       const response = await fetch('/api/ask-llm', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question: fullQuestion, passphrase: storedPassphrase }),
+        body: JSON.stringify({ question: userQuestion, passphrase: storedPassphrase }),
       });
       const data = await response.json();
       if (response.ok) {

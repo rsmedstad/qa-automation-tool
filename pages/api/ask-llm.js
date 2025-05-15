@@ -1,156 +1,96 @@
-/*───────────────────────────────────────────────────────────────────────────────
-  ask-llm.js
-  ----------
-  • Uses Google's Gemini API with function calling for crawl initiation
-  • Fetches crawl results and test definitions from Supabase for context
-  • Implements short-term chat history using Vercel KV (last 6 turns, 1-hour TTL)
-  • Validates passphrase and environment variables at startup
-  • Implements confirmation layer via function calls instead of direct crawl triggers
-  • Uses Gemini 1.5 Flash (configurable to 2.5 if available)
-  • Enhanced prompt engineering for clarity and confirmation prompts
-  • Formatted context for better readability
-  • Adjusted temperature for deterministic responses
-  • Improved error handling and logging
-  • Truncated large datasets to avoid token limits
-───────────────────────────────────────────────────────────────────────────────*/
-
+// pages/api/ask-llm.js
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { createClient } from '@supabase/supabase-js';
 import { kv } from '@vercel/kv';
 import { v4 as uuidv4 } from 'uuid';
-require('dotenv').config();
+import 'dotenv/config';
 
-// Validate Supabase environment variables
+// —————————————————————————————
+// Supabase client setup
+// —————————————————————————————
 const SUPABASE_URL = process.env.SUPABASE_URL;
-if (!SUPABASE_URL || !SUPABASE_URL.startsWith('http')) {
-  console.error(`Invalid SUPABASE_URL: ${SUPABASE_URL}`);
-  throw new Error(`Invalid SUPABASE_URL: ${SUPABASE_URL}`);
-}
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+if (!SUPABASE_URL?.startsWith('http')) {
+  console.error(`Invalid SUPABASE_URL: ${SUPABASE_URL}`);
+  throw new Error('Invalid SUPABASE_URL');
+}
 if (!SUPABASE_KEY) {
   console.error('Missing SUPABASE_SERVICE_ROLE_KEY');
   throw new Error('Missing SUPABASE_SERVICE_ROLE_KEY');
 }
-// Singleton Supabase client
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-// Function schema for crawl initiation
-const initiateCrawlFunction = {
-  name: "initiate_crawl",
-  description: "Initiate a QA crawl with the specified parameters.",
-  parameters: {
-    type: "OBJECT",
-    properties: {
-      urls: {
-        type: "ARRAY",
-        items: { type: "STRING" },
-        description: "List of URLs to crawl",
-      },
-      test_ids: {
-        type: "ARRAY",
-        items: { type: "STRING" },
-        description: "List of test case IDs to run",
-      },
-      initiator: {
-        type: "STRING",
-        description: "Name of the person initiating the crawl",
-      },
-    },
-    required: ["urls", "test_ids", "initiator"],
-  },
-};
-
-/**
- * Fetches summaries of the last 3 crawl runs from Supabase.
- * @returns {string} - Summaries of recent crawls or an error message.
- */
+// —————————————————————————————
+// Helpers: fetch last 3 runs & test definitions
+// —————————————————————————————
 async function getLatestCrawlSummary() {
   try {
-    const { data: recentRuns, error } = await supabase
+    const { data: runs, error } = await supabase
       .from('test_runs')
       .select('run_id, created_at, initiated_by')
       .order('created_at', { ascending: false })
       .limit(3);
-    if (error) {
-      console.error('Supabase fetch error for recent runs:', error);
-      return 'Error fetching crawl data from Supabase.';
-    }
-    if (!recentRuns.length) {
-      console.log('No recent crawl data found in Supabase.');
-      return 'No recent crawl data available.';
-    }
+    if (error) throw error;
+    if (!runs || !runs.length) return 'No recent crawl data available.';
 
-    console.log('Fetched recent runs:', recentRuns);
     let summary = '';
-    for (const run of recentRuns) {
+    for (const run of runs) {
       const { data: results, error: resultsError } = await supabase
         .from('test_results')
         .select('url, test_id, result')
         .eq('run_id', run.run_id);
-      if (resultsError) {
-        console.error(`Supabase fetch error for test results of run ${run.run_id}:`, resultsError);
-        continue;
+      if (resultsError) throw resultsError;
+
+      const urlMap = {};
+      if (results) {
+        results.forEach(r => {
+          urlMap[r.url] = urlMap[r.url] || { pass: true };
+          if (r.result === 'fail') urlMap[r.url].pass = false;
+        });
       }
-      const urlResults = {};
-      results.forEach(r => {
-        if (!urlResults[r.url]) urlResults[r.url] = { pass: true, failedTests: [] };
-        if (r.result === 'fail') {
-          urlResults[r.url].pass = false;
-          urlResults[r.url].failedTests.push(r.test_id);
-        }
-      });
-      const total = Object.keys(urlResults).length;
-      const failed = Object.values(urlResults).filter(r => !r.pass).length;
-      summary += `- Run ID: ${run.run_id}, Crawl: QA Run, Date: ${run.created_at}, Success: ${total - failed}, Failures: ${failed}, Initiator: ${run.initiated_by}\n`;
+      const total = Object.keys(urlMap).length;
+      const failed = Object.values(urlMap).filter(r => !r.pass).length;
+      summary += `- Run ID: ${run.run_id}, Date: ${run.created_at}, Success: ${total - failed}, Failures: ${failed}, Initiator: ${run.initiated_by || 'N/A'}\n`;
     }
-    console.log('Crawl summary generated:', summary);
     return summary;
   } catch (err) {
-    console.error('Error fetching crawl summaries:', {
-      message: err.message,
-      stack: err.stack,
-    });
+    console.error('Error fetching crawl summaries:', err);
     return 'Error fetching crawl data.';
   }
 }
 
-/**
- * Fetches all test definitions for context.
- * @returns {string} - Formatted test definitions or an error message.
- */
 async function getTestDefinitions() {
   try {
     const { data, error } = await supabase
       .from('test_definitions')
       .select('test_id, title, description, test_method, screamingfrog_feature, screamingfrog_method, category');
-    if (error) {
-      console.error('Supabase fetch error for test definitions:', error);
-      return 'Error fetching test definitions from Supabase.';
-    }
-    console.log('Fetched test definitions:', data);
-    if (!data.length) {
-      return 'No test definitions available.';
-    }
-    return data.map(def => {
-      return `Test ID: ${def.test_id}\nTitle: ${def.title}\nDescription: ${def.description}\nCategory: ${def.category}\nHow it's tested (Method): ${def.test_method}\nScreaming Frog Feature: ${def.screamingfrog_feature}\nScreaming Frog Method: ${def.screamingfrog_method}\n---`;
-    }).join('\n');
+    if (error) throw error;
+    if (!data || !data.length) return 'No test definitions available.';
+
+    return data
+      .map(d => `
+Test ID: ${d.test_id}
+Title: ${d.title}
+Description: ${d.description}
+Category: ${d.category}
+Method: ${d.test_method}
+Screaming Frog Feature: ${d.screamingfrog_feature}
+Screaming Frog Method: ${d.screamingfrog_method}
+---
+`.trim())
+      .join('\n\n');
   } catch (err) {
-    console.error('Error fetching test definitions:', {
-      message: err.message,
-      stack: err.stack,
-    });
+    console.error('Error fetching test definitions:', err);
     return 'Error fetching test definitions.';
   }
 }
 
-/**
- * Main handler: processes user questions, detects crawl intent via function calling,
- * and returns either a confirmation prompt or an informational response.
- * Now includes short-term chat history using Vercel KV.
- */
+// —————————————————————————————
+// Main API handler
+// —————————————————————————————
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
-    console.log('Invalid method:', req.method);
+    res.setHeader('Allow', ['POST']);
     return res.status(405).json({ message: 'Method not allowed' });
   }
 
@@ -158,182 +98,127 @@ export default async function handler(req, res) {
   const GEMINI_KEY = process.env.GEMINI_API_KEY;
   const STORED_PASSPHRASE = process.env.GEMINI_PASSPHRASE;
 
-  // Passphrase & API key checks
-  if (!STORED_PASSPHRASE || passphrase.trim() !== STORED_PASSPHRASE.trim()) {
-    console.log('Passphrase validation failed:', {
-      provided: passphrase,
-      expected: STORED_PASSPHRASE,
-    });
+  if (!STORED_PASSPHRASE || !passphrase || passphrase.trim() !== STORED_PASSPHRASE.trim()) {
     return res.status(401).json({ message: 'Invalid passphrase' });
   }
   if (!GEMINI_KEY) {
-    console.error('GEMINI_API_KEY is not set in environment variables');
-    return res.status(500).json({ message: 'Server configuration error: API key missing' });
+    console.error('Server configuration error: missing Gemini API key');
+    return res.status(500).json({ message: 'Server configuration error: missing Gemini API key' });
   }
-  if (!question || typeof question !== 'string') {
-    console.error('Invalid question:', question);
+  if (!question || typeof question !== 'string' || question.trim() === '') {
     return res.status(400).json({ message: 'Invalid or missing question' });
   }
 
-  try {
-    console.log('Processing question:', question);
+  let sessionId = req.cookies?.sessionId;
+  if (!sessionId) {
+    sessionId = uuidv4();
+    // Add SameSite attribute for better security
+    res.setHeader(
+      'Set-Cookie',
+      `sessionId=${sessionId}; Path=/; HttpOnly; Max-Age=3600; SameSite=Lax`
+    );
+  }
+  const historyFromKV = (await kv.get(`chat:${sessionId}`)) || [];
 
-    // Get or create sessionId from cookies
-    let sessionId = req.cookies.sessionId;
-    if (!sessionId) {
-      sessionId = uuidv4();
-      res.setHeader('Set-Cookie', `sessionId=${sessionId}; Path=/; HttpOnly; Max-Age=3600`);
-    }
+  // —————————————————————————————
+  // Build system instruction text (formerly systemMessage)
+  // —————————————————————————————
+  const summary = await getLatestCrawlSummary();
+  const definitions = await getTestDefinitions();
+  const systemInstructionText = `
+You are an AI assistant for the QA Automation Tool.
+Users ask about QA tests (e.g. "TC-01") or past run results.
+Always answer based on the tests and context provided; do not run code.
 
-    // Fetch conversation history from Vercel KV (default to empty array if none exists)
-    const history = (await kv.get(`chat:${sessionId}`)) || [];
-
-    // Fetch context for Gemini
-    console.log('Fetching crawl summary for context...');
-    const summary = await getLatestCrawlSummary();
-    console.log('Fetching test definitions for context...');
-    const defs = await getTestDefinitions();
-
-    // Format recent runs and test definitions
-    const recentRunsFormatted = summary.trim() || 'No recent crawl data available.';
-    const testDefinitionsFormatted = defs.trim() || 'No test definitions available.';
-
-    // Enhanced system message with function calling instructions
-    const systemMessage = `You are an AI assistant for the QA Automation Tool. Users may ask questions about performing QA/Tests on URLs or about specific test cases (TCs). Your role is to provide information about these tests based on the provided definitions or analyze past results if available in the context. You cannot execute new tests directly.
-
-If the user explicitly requests to start a crawl with action verbs like 'start,' 'initiate,' or 'run,' and provides the necessary details (URLs, test cases, initiator name), call the 'initiate_crawl' function with the appropriate parameters. Do not initiate crawls automatically without explicit intent and always prompt for confirmation in your response (e.g., "Please confirm with 'yes,' 'start,' or 'proceed' to initiate the crawl."). Otherwise, provide an informational response based on the context.
-
-For example, do not suggest specific Selenium commands or Python scripts. Only describe the steps or logic of a test as outlined in its definition.
-
-If a user asks to perform a QA test without sufficient details, respond with: "I understand you're asking to test [URL(s)] for [Test Case(s)]. Please provide the URLs, test cases (e.g., TC-01), and your name to initiate the crawl. For example, say: 'Start a crawl on https://example.com with TC-01, TC-02 initiated by [Your Name].'"
-
-Use the following context:
 RECENT QA RUNS:
-${recentRunsFormatted}
+${summary}
 
 AVAILABLE TEST DEFINITIONS:
-${testDefinitionsFormatted}
+${definitions}
+`.trim();
 
-**Note**: “Test 1” maps to “TC-01”, etc.`;
+  // —————————————————————————————
+  // Assemble `contents` for Gemini API
+  // History roles must be 'user' or 'model'. System instructions are separate.
+  // —————————————————————————————
+  const contentsForApi = [
+    // Map history to the format expected by Gemini API
+    ...historyFromKV.map(msg => ({
+      role: msg.role === 'assistant' ? 'model' : 'user', // Map 'assistant' to 'model'
+      parts: [{ text: msg.content }],
+    })),
+    // Add current user question
+    {
+      role: 'user',
+      parts: [{ text: question }],
+    },
+  ];
 
-    // Construct messages array with history and new prompt
-    let messages = [
-      { role: 'system', content: systemMessage },
-      ...history.map(item => ({ role: item.role, content: item.content })),
-      { role: 'user', content: question },
-    ];
+  const genAI = new GoogleGenerativeAI(GEMINI_KEY);
+  const model = genAI.getGenerativeModel({
+    model: 'gemini-1.5-flash',
+    // systemInstruction can also be set here if it's static for the model instance
+    // e.g., systemInstruction: systemInstructionText
+  });
 
-    console.log('Full prompt with history:', messages);
-
-    // Check total prompt length and truncate if necessary
-    const MAX_PROMPT_LENGTH = 4000; // Adjust based on Gemini's token limit
-    let totalLength = messages.reduce((acc, msg) => acc + msg.content.length, 0);
-    if (totalLength > MAX_PROMPT_LENGTH) {
-      console.warn('Prompt exceeds maximum length, truncating...');
-      let truncatedMessages = [];
-      let currentLength = systemMessage.length; // Always include system message
-      truncatedMessages.push(messages[0]); // System message
-
-      // Add history and user prompt, prioritizing recent messages
-      for (let i = messages.length - 1; i > 0; i--) {
-        const msg = messages[i];
-        if (currentLength + msg.content.length <= MAX_PROMPT_LENGTH) {
-          truncatedMessages.unshift(msg);
-          currentLength += msg.content.length;
-        } else {
-          break;
-        }
-      }
-      messages = truncatedMessages;
-    }
-
-    console.log('Initializing Google Generative AI client...');
-    const genAI = new GoogleGenerativeAI(GEMINI_KEY);
-    // Using gemini-2.5-flash; check Gemini API docs for gemini-2.5-flash availability
-    const model = genAI.getGenerativeModel({
-      model: 'gemini-2.5-flash', // Adjust to 'gemini-2.5-flash' if available
-      temperature: 0.2,
+  let assistantResponseText;
+  try {
+    const generationResult = await model.generateContent({
+      contents: contentsForApi,
+      systemInstruction: systemInstructionText, // Pass the system instructions as a string
+      generationConfig: {
+        temperature: 0.2,
+      },
     });
 
-    console.log('Sending request to Google API...');
-    let result;
-    try {
-      result = await model.generateContent({
-        contents: messages.map(msg => ({ role: msg.role, parts: [{ text: msg.content }] })),
-        tools: [{ functionDeclarations: [initiateCrawlFunction] }],
-      });
-    } catch (apiError) {
-      console.error('Gemini API call failed:', {
-        message: apiError.message,
-        stack: apiError.stack,
-        response: apiError.response ? apiError.response.data : null,
-      });
-      throw new Error(`Gemini API call failed: ${apiError.message}`);
-    }
-    console.log('Google API request sent.');
-
-    const response = result.response;
-    const functionCalls = response.functionCalls();
-
-    let assistantMsg;
-    if (functionCalls && functionCalls.length > 0) {
-      const functionCall = functionCalls[0];
-      if (functionCall.name === 'initiate_crawl') {
-        const args = functionCall.args;
-        // Validate parameters
-        if (args.urls && args.test_ids && args.initiator) {
-          console.log('Crawl intent detected with parameters:', args);
-
-          // Update history with the user message (but not the function call response yet)
-          const newHistory = [
-            ...history,
-            { role: 'user', content: question },
-          ].slice(-6);
-          await kv.set(`chat:${sessionId}`, newHistory, { ex: 3600 });
-
-          res.status(200).json({
-            action: 'confirm_crawl',
-            parameters: {
-              urls: args.urls,
-              test_ids: args.test_ids,
-              initiator: args.initiator,
-            },
-            message: 'Please confirm with "yes," "start," or "proceed" to start the crawl with the specified parameters.',
-          });
-          return;
-        } else {
-          console.error('Invalid parameters for crawl initiation:', args);
-          res.status(400).json({ message: 'Invalid parameters for crawl initiation. Please provide URLs, test IDs, and initiator.' });
-          return;
-        }
-      } else {
-        console.error('Unexpected function call:', functionCall.name);
-        res.status(500).json({ message: 'Unexpected function call from Gemini.' });
-        return;
-      }
+    // Extract the assistant’s reply text
+    // Accessing response safely
+    if (generationResult.response &&
+        generationResult.response.candidates &&
+        generationResult.response.candidates.length > 0 &&
+        generationResult.response.candidates[0].content &&
+        generationResult.response.candidates[0].content.parts &&
+        generationResult.response.candidates[0].content.parts.length > 0) {
+      assistantResponseText = generationResult.response.candidates[0].content.parts[0].text;
     } else {
-      assistantMsg = response.text();
-      console.log('Final response from Google API:', assistantMsg);
+      // Handle cases where the response might be blocked or empty
+      console.error('Gemini API returned an unexpected or empty response structure:', JSON.stringify(generationResult.response));
+      let S_errorMessage = "Sorry, I couldn't get a valid response from the AI.";
+      if (generationResult.response && generationResult.response.promptFeedback) {
+        S_errorMessage = `Request blocked due to: ${generationResult.response.promptFeedback.blockReason || 'Safety concerns'}`;
+        console.error('Prompt Feedback:', generationResult.response.promptFeedback);
+      } else if (generationResult.response && generationResult.response.candidates && generationResult.response.candidates.length > 0) {
+        const candidate = generationResult.response.candidates[0];
+        if (candidate.finishReason && candidate.finishReason !== "STOP") {
+          S_errorMessage = `Gemini API finished with reason: ${candidate.finishReason}.`;
+          console.error('Finish Reason:', candidate.finishReason, candidate.safetyRatings ? `Safety Ratings: ${JSON.stringify(candidate.safetyRatings)}` : '');
+        }
+      }
+      return res.status(500).json({ message: S_errorMessage, details: generationResult.response });
     }
 
-    // Update history with both user and assistant messages
-    const newHistory = [
-      ...history,
-      { role: 'user', content: question },
-      { role: 'assistant', content: assistantMsg },
-    ].slice(-6); // Keep last 6 entries (3 turns)
-
-    // Store updated history in Vercel KV with 1-hour TTL
-    await kv.set(`chat:${sessionId}`, newHistory, { ex: 3600 });
-
-    res.status(200).json({ answer: assistantMsg });
   } catch (err) {
-    console.error('Error in ask-llm handler:', {
-      message: err.message,
-      stack: err.stack,
-      status: err.status,
-      response: err.response ? err.response.data : null,
-    });
-    res.status(500).json({ message: 'Failed to process request', error: err.message });
+    console.error('Gemini API error:', err);
+    let detailedErrorMessage = err.message;
+    if (err.status && err.statusText) { // For GoogleGenerativeAIFetchError like objects
+        detailedErrorMessage = `[${err.status} ${err.statusText}] ${err.message}`;
+        if(err.errorDetails) detailedErrorMessage += ` Details: ${JSON.stringify(err.errorDetails)}`;
+    }
+    return res.status(500).json({ message: 'Gemini API call failed', error: detailedErrorMessage });
   }
+
+  // —————————————————————————————
+  // Persist updated history (keep last 6 interactions = 3 pairs of user/assistant)
+  // —————————————————————————————
+  const newHistory = [
+    ...historyFromKV,
+    { role: 'user', content: question },
+    { role: 'assistant', content: assistantResponseText }, // Storing 'assistant' role locally is fine
+  ].slice(-6); // Keep up to 3 full exchanges (user + assistant = 1 exchange)
+  await kv.set(`chat:${sessionId}`, newHistory, { ex: 3600 }); // ex is in seconds for expiration
+
+  // —————————————————————————————
+  // Return final answer
+  // —————————————————————————————
+  res.status(200).json({ answer: assistantResponseText });
 }
