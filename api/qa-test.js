@@ -30,8 +30,8 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-try {
-  (async () => {
+(async () => {
+  try {
     console.log('Starting QA test script');
     const [,, inputFile, outputFile, initiatedBy] = process.argv;
     const captureVideo = process.argv[5] ? process.argv[5].toLowerCase() === 'true' : false;
@@ -227,6 +227,17 @@ try {
       const region = urlData.data['Region'] || 'N/A';
       console.log(`[${idx + 1}/${urls.length}] ${url}`);
       const t0 = Date.now();
+
+      // Validate URL
+      if (!url || !url.startsWith('http')) {
+        console.log(`Invalid URL: ${url}`);
+        results[idx]['HTTP Status'] = 'Invalid URL';
+        for (const id of testIds) {
+          results[idx][id] = 'NA';
+        }
+        await updateProgress(idx + 1, startTime);
+        return;
+      }
 
       const page = await context.newPage();
       let resp;
@@ -586,27 +597,22 @@ try {
       failedUrls: failedUrlsList
     };
 
-    const storeRunBaseUrl = process.env.VERCEL_URL
+    const storeRunBaseUrl = process.env.VERCEL_URL && !process.env.VERCEL_URL.startsWith('http')
       ? `https://${process.env.VERCEL_URL}`
-      : (process.env.NODE_ENV === 'development' ? 'http://localhost:3000' : null);
+      : process.env.VERCEL_URL || 'http://localhost:3000';
+    const storeRunUrl = `${storeRunBaseUrl}/api/store-run`;
+    console.log(`Sending run summary to ${storeRunUrl}`);
+    const response = await fetch(storeRunUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
 
-    if (storeRunBaseUrl) {
-      const storeRunUrl = `${storeRunBaseUrl}/api/store-run`;
-      console.log(`Sending run summary to ${storeRunUrl}`);
-      const response = await fetch(storeRunUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-
-      if (!response.ok) {
-        const errorBody = await response.text();
-        console.error(`Failed to store run: ${response.status} ${response.statusText}`, errorBody);
-      } else {
-        console.log('Successfully stored run summary via API.');
-      }
+    if (!response.ok) {
+      const errorBody = await response.text();
+      console.error(`Failed to store run: ${response.status} ${response.statusText}`, errorBody);
     } else {
-      console.warn('VERCEL_URL not set and not in development. Skipping sending run summary.');
+      console.log('Successfully stored run summary via API.');
     }
 
     const outputWorkbook = new ExcelJS.Workbook();
@@ -643,8 +649,8 @@ try {
     await browser.close();
 
     process.exit(failed > 0 ? 1 : 0);
-  })();
-} catch (error) {
-  console.error('Fatal error:', error.message || error);
-  process.exit(1);
-}
+  } catch (error) {
+    console.error('Fatal error:', error.message || error);
+    process.exit(1);
+  }
+})();
