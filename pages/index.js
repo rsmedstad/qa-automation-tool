@@ -24,6 +24,7 @@ export default function Dashboard() {
   const [testDefinitions, setTestDefinitions] = useState([]);
   const [sfTests, setSfTests] = useState([]);
   const [activeTab, setActiveTab] = useState('testDefinitions');
+  const [expandedRuns, setExpandedRuns] = useState([]); // New state for expanded runs
   const chartRef = useRef(null);
   const donutChartRef = useRef(null);
 
@@ -42,7 +43,6 @@ export default function Dashboard() {
           if (!run.date || isNaN(runDate.getTime())) {
             console.warn(`Invalid date for run ${run.runId || idx}: ${run.date}. Using current date.`);
           }
-          // Extract screenshot and video paths
           const screenshots = Array.isArray(run.screenshot_paths) ? run.screenshot_paths.filter(Boolean) : [];
           const videos = Array.isArray(run.video_paths) ? run.video_paths.filter(Boolean) : [];
           return {
@@ -53,7 +53,7 @@ export default function Dashboard() {
             artifactsList: run.artifactsList || [],
             failed_urls: run.failed_urls || [],
             failed_tests: run.failed_tests || {},
-            successCount: run.successCount || run.passed || run.total || 0, // Added run.total as fallback
+            successCount: run.successCount || run.passed || run.total || 0,
             failureCount: run.failureCount || run.failed || 0,
             naCount: run.naCount || run.na || 0,
             date: runDate.toISOString(),
@@ -124,7 +124,6 @@ export default function Dashboard() {
         const failedData = recentRuns.map((run) => run.failureCount || 0);
         const naData = recentRuns.map((run) => run.naCount || 0);
 
-        // Compute max Y, ensuring a minimum of 1
         const maxTotalUrls = Math.max(
           1,
           ...recentRuns.map((run) => (run.successCount || 0) + (run.failureCount || 0) + (run.naCount || 0))
@@ -173,7 +172,7 @@ export default function Dashboard() {
               tooltip: {
                 backgroundColor: isDarkMode ? 'rgba(40,40,40,0.9)' : 'rgba(245,245,245,0.9)',
                 titleColor: isDarkMode ? '#E5E7EB' : '#374151',
-                bodyColor: isDarkMode ? '#E5E7EB' : '#374151',
+                body--"Color": isDarkMode ? '#E5E7EB' : '#374151',
                 borderColor: isDarkMode ? '#555' : '#ccc',
                 borderWidth: 1,
               },
@@ -615,28 +614,47 @@ export default function Dashboard() {
                                       </svg>
                                       View Actions ({run.artifactCount || 0})
                                     </a>
-                                    {run.screenshotPaths.map((url, idx) => (
-                                      <a
-                                        key={`screenshot-${idx}`}
-                                        href={url}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="block text-sm text-blue-500 hover:underline"
+                                    {(run.screenshotPaths.length > 0 || run.videoPaths.length > 0) && (
+                                      <button
+                                        onClick={() =>
+                                          setExpandedRuns((prev) =>
+                                            prev.includes(run.runId)
+                                              ? prev.filter((id) => id !== run.runId)
+                                              : [...prev, run.runId]
+                                          )
+                                        }
+                                        className="ml-2 text-blue-500 hover:underline text-sm"
                                       >
-                                        Screenshot {idx + 1}
-                                      </a>
-                                    ))}
-                                    {run.videoPaths.map((url, idx) => (
-                                      <a
-                                        key={`video-${idx}`}
-                                        href={url}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="block text-sm text-blue-500 hover:underline"
-                                      >
-                                        Video {idx + 1}
-                                      </a>
-                                    ))}
+                                        {expandedRuns.includes(run.runId) ? 'Hide' : 'Show'} Artifacts (
+                                        {run.screenshotPaths.length + run.videoPaths.length})
+                                      </button>
+                                    )}
+                                    {expandedRuns.includes(run.runId) && (
+                                      <div className="mt-2 space-y-1 pl-4">
+                                        {run.screenshotPaths.map((url, idx) => (
+                                          <a
+                                            key={`screenshot-${idx}`}
+                                            href={url}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="block text-sm text-blue-500 hover:underline"
+                                          >
+                                            Screenshot {idx + 1}
+                                          </a>
+                                        ))}
+                                        {run.videoPaths.map((url, idx) => (
+                                          <a
+                                            key={`video-${idx}`}
+                                            href={url}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="block text-sm text-blue-500 hover:underline"
+                                          >
+                                            Video {idx + 1}
+                                          </a>
+                                        ))}
+                                      </div>
+                                    )}
                                   </div>
                                 ) : (
                                   <span className="text-gray-500 dark:text-gray-400">None</span>

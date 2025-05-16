@@ -68,18 +68,18 @@ export default async function handler(req, res) {
         return {
           crawlName: `Run #${run.run_number} - ${run.event === 'schedule' ? 'Scheduled' : 'Ad-Hoc'}`,
           date: run.created_at,
-          initiator: detailedData.initiator || run.actor.login,
-          successCount: detailedData.passed,
-          failureCount: detailedData.failed,
-          naCount: detailedData.na,
+          initiator: detailedData.initiatedBy || run.actor.login, // Use `initiatedBy` from summary.json
+          successCount: detailedData.successCount || 0, // Map to successCount
+          failureCount: detailedData.failureCount || 0, // Map to failureCount
+          naCount: detailedData.naCount || 0, // Map to naCount
           runId: run.id,
           event: run.event,
           hasArtifacts: hasArtifacts,
           artifactCount: artifactCount,
-          failed_urls: detailedData.failed_urls,
-          failed_tests: detailedData.failed_tests,
-          screenshot_paths: detailedData.screenshot_paths,
-          video_paths: detailedData.video_paths
+          failed_urls: detailedData.failedUrls || [], // Use failedUrls
+          failed_tests: detailedData.testFailureSummary || {}, // Use testFailureSummary
+          screenshot_paths: detailedData.screenshot_paths || [],
+          video_paths: detailedData.video_paths || []
         };
       } catch (runError) {
         console.error(`Error processing run ${run.id}:`, runError.message);
