@@ -184,6 +184,7 @@ const supabase = createClient(
         const blob = await put(destPath, fileBuffer, {
           access: 'public',
           token: process.env.BLOB_READ_WRITE_TOKEN,
+          allowOverwrite: true, // Added to enable overwriting
         });
         fs.unlinkSync(filePath);
         console.log(`Uploaded ${destPath} to Vercel Blob: ${blob.url}`);
@@ -234,6 +235,9 @@ const supabase = createClient(
       if (error) console.error(`Error inserting test result for ${testId} on ${url}:`, error.message || error);
     }
 
+    const allScreenshotUrls = [];
+    const allVideoUrls = [];
+
     async function runUrl(urlData, idx) {
       const url = urlData.url;
       const testIds = urlData.testIds;
@@ -277,7 +281,7 @@ const supabase = createClient(
       }
 
       results[idx]['HTTP Status'] = resp ? resp.status() : 'N/A';
-      const failedTestIds = [];
+      const failedTestIds =[];
 
       const validTestIds = testIds.filter(id => allTestIds.includes(id));
       if (testIds.length !== validTestIds.length) {
@@ -537,6 +541,9 @@ const supabase = createClient(
         if (updateError) console.error('Error updating test results with media URLs:', updateError.message || updateError);
       }
 
+      if (screenshotUrl) allScreenshotUrls.push(screenshotUrl);
+      if (videoUrl) allVideoUrls.push(videoUrl);
+
       const relevantTestResults = validTestIds.map(id => results[idx][id]);
       if (relevantTestResults.length === 0) {
         results[idx]['Page Pass?'] = 'NA';
@@ -605,7 +612,9 @@ const supabase = createClient(
       failureCount: failed,
       initiatedBy: initiatedBy,
       testFailureSummary,
-      failedUrls: failedUrlsList
+      failedUrls: failedUrlsList,
+      screenshot_paths: allScreenshotUrls,
+      video_paths: allVideoUrls
     };
 
     const storeRunBaseUrl = process.env.VERCEL_URL && !process.env.VERCEL_URL.startsWith('http')

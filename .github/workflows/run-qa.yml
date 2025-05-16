@@ -43,7 +43,9 @@ jobs:
         if: github.event_name == 'workflow_dispatch'
         run: |
           if [ "${{ inputs.passphrase }}" != "${{ secrets.QA_PASSPHRASE }}" ]; then
-            echo "::error ::Incorrect pass-phrase"; exit 1; fi
+            echo "::error ::Incorrect pass-phrase"
+            exit 1
+          fi
 
       - name: Install dependencies
         run: npm ci
@@ -69,8 +71,13 @@ jobs:
         continue-on-error: true
         env:
           BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
+          BLOB_ALLOW_OVERWRITE: 'true'     # ← new flag to tell your script to overwrite existing blobs
         run: |
-          node api/qa-test.js input.xlsx results-${{ github.run_id }}.xlsx "${{ env.INITIATOR }}" "${{ inputs.capture_video }}"
+          node api/qa-test.js \
+            input.xlsx \
+            results-${{ github.run_id }}.xlsx \
+            "${{ env.INITIATOR }}" \
+            "${{ inputs.capture_video }}"
 
       - name: Upload results artifact
         if: always()

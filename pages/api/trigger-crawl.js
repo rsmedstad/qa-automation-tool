@@ -2,7 +2,7 @@
 import ExcelJS from 'exceljs';
 import { put } from '@vercel/blob';
 import { Octokit } from '@octokit/rest';
-import { v4 as uuidv4 } from 'uuid'; // Import UUID
+import { v4 as uuidv4 } from 'uuid';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -20,7 +20,6 @@ export default async function handler(req, res) {
   }
 
   try {
-    // Generate Excel file
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet('URLs');
     worksheet.columns = [
@@ -38,16 +37,15 @@ export default async function handler(req, res) {
 
     const buffer = await workbook.xlsx.writeBuffer();
 
-    // Upload to Vercel Blob
     const blob = await put('input.xlsx', buffer, {
       access: 'public',
       token: process.env.BLOB_READ_WRITE_TOKEN,
       addRandomSuffix: true,
+      allowOverwrite: true, // Added to enable overwriting
     });
 
-    // Trigger GitHub Action
     const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
-    const newRunId = `run-${uuidv4()}`; // Use UUID for runId
+    const newRunId = `run-${uuidv4()}`;
     const response = await octokit.actions.createWorkflowDispatch({
       owner: 'rsmedstad',
       repo: 'qa-automation-tool',

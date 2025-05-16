@@ -13,6 +13,7 @@ async function uploadFileToStorage(fileBuffer) {
     access: 'public',
     token: process.env.BLOB_READ_WRITE_TOKEN,
     addRandomSuffix: true,
+    allowOverwrite: true, // Added to enable overwriting
   });
   return blob.url;
 }

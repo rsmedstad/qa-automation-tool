@@ -37,18 +37,35 @@ export default function Dashboard() {
         if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
         const data = await res.json();
         console.log('Fetched runs:', data);
-        const sanitizedData = data.map((run, idx) => ({
-          ...run,
-          runId: run.runId || `fallback-${idx}`,
-          hasArtifacts: run.hasArtifacts ?? false,
-          artifactCount: run.artifactCount || 0,
-          artifactsList: run.artifactsList || [],
-          failed_urls: run.failed_urls || [],
-          failed_tests: run.failed_tests || {},
-        }));
+        const sanitizedData = data.map((run, idx) => {
+          const runDate = run.date ? new Date(run.date) : new Date();
+          if (!run.date || isNaN(runDate.getTime())) {
+            console.warn(`Invalid date for run ${run.runId || idx}: ${run.date}. Using current date.`);
+          }
+          // Extract screenshot and video paths
+          const screenshots = Array.isArray(run.screenshot_paths) ? run.screenshot_paths.filter(Boolean) : [];
+          const videos = Array.isArray(run.video_paths) ? run.video_paths.filter(Boolean) : [];
+          return {
+            ...run,
+            runId: run.runId || `fallback-${idx}`,
+            hasArtifacts: run.hasArtifacts ?? false,
+            artifactCount: run.artifactCount || screenshots.length + videos.length,
+            artifactsList: run.artifactsList || [],
+            failed_urls: run.failed_urls || [],
+            failed_tests: run.failed_tests || {},
+            successCount: run.successCount || run.passed || run.total || 0, // Added run.total as fallback
+            failureCount: run.failureCount || run.failed || 0,
+            naCount: run.naCount || run.na || 0,
+            date: runDate.toISOString(),
+            screenshotPaths: screenshots,
+            videoPaths: videos,
+          };
+        });
+        console.log('Sanitized runs:', sanitizedData);
         setRuns(sanitizedData);
       } catch (err) {
         console.error('Error fetching runs:', err);
+        setRuns([]);
         setRunsError('Failed to load runs: ' + err.message);
       } finally {
         setRunsLoading(false);
@@ -107,20 +124,12 @@ export default function Dashboard() {
         const failedData = recentRuns.map((run) => run.failureCount || 0);
         const naData = recentRuns.map((run) => run.naCount || 0);
 
-        const filteredIndices = recentRuns
-          .map((run, index) => (passedData[index] > 0 || failedData[index] > 0 || naData[index] > 0 ? index : null))
-          .filter((index) => index !== null);
-
-        const filteredLabels = filteredIndices.map((index) => labels[index]);
-        const filteredPassedData = filteredIndices.map((index) => passedData[index]);
-        const filteredFailedData = filteredIndices.map((index) => failedData[index]);
-        const filteredNaData = filteredIndices.map((index) => naData[index]);
-
+        // Compute max Y, ensuring a minimum of 1
         const maxTotalUrls = Math.max(
-          0,
-          ...filteredIndices.map((index) => (filteredPassedData[index] || 0) + (filteredFailedData[index] || 0) + (filteredNaData[index] || 0))
+          1,
+          ...recentRuns.map((run) => (run.successCount || 0) + (run.failureCount || 0) + (run.naCount || 0))
         );
-        const yAxisMax = maxTotalUrls > 0 ? Math.ceil(maxTotalUrls / 5) * 5 + 10 : 50;
+        const yAxisMax = maxTotalUrls > 0 ? Math.ceil(maxTotalUrls / 5) * 5 + 5 : 10;
 
         if (chartRef.current.chart) chartRef.current.chart.destroy();
 
@@ -132,18 +141,18 @@ export default function Dashboard() {
         chartRef.current.chart = new Chart(ctx, {
           type: 'bar',
           data: {
-            labels: filteredLabels,
+            labels: labels,
             datasets: [
-              { label: '# Passed', data: filteredPassedData, backgroundColor: 'rgba(75, 192, 75, 0.6)', borderColor: 'rgba(75, 192, 75, 1)', borderWidth: 1 },
-              { label: '# Failed', data: filteredFailedData, backgroundColor: 'rgba(255, 99, 132, 0.6)', borderColor: 'rgba(255, 99, 132, 1)', borderWidth: 1 },
-              { label: '# N/A', data: filteredNaData, backgroundColor: 'rgba(255, 206, 86, 0.6)', borderColor: 'rgba(255, 206, 86, 1)', borderWidth: 1 },
+              { label: '# Passed', data: passedData, backgroundColor: 'rgba(75, 192, 75, 0.6)', borderColor: 'rgba(75, 192, 75, 1)', borderWidth: 1 },
+              { label: '# Failed', data: failedData, backgroundColor: 'rgba(255, 99, 132, 0.6)', borderColor: 'rgba(255, 99, 132, 1)', borderWidth: 1 },
+              { label: '# N/A', data: naData, backgroundColor: 'rgba(255, 206, 86, 0.6)', borderColor: 'rgba(255, 206, 86, 1)', borderWidth: 1 },
             ],
           },
           options: {
             scales: {
               x: {
                 stacked: true,
-                ticks: { autoSkip: true, maxTicksLimit: 10, maxRotation: 45, minRotation: 45, color: tickColor, callback: (value, index) => filteredLabels[index]?.split('\n') || '' },
+                ticks: { autoSkip: true, maxTicksLimit: 10, maxRotation: 45, minRotation: 45, color: tickColor, callback: (value, index) => labels[index]?.split('\n') || '' },
                 grid: { color: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)' },
               },
               y: {
@@ -593,18 +602,42 @@ export default function Dashboard() {
                               <td className="p-3 text-green-600 dark:text-green-400 font-medium text-center">{run.successCount || 0}</td>
                               <td className="p-3 text-red-600 dark:text-red-400 font-medium text-center">{run.failureCount || 0}</td>
                               <td className="p-3">
-                                {run.hasArtifacts ? (
-                                  <a
-                                    href={`https://github.com/rsmedstad/qa-automation-tool/actions/runs/${run.runId}`}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="text-indigo-600 dark:text-indigo-400 hover:underline inline-flex items-center"
-                                  >
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                                      <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                                    </svg>
-                                    View ({run.artifactCount || 0})
-                                  </a>
+                                {run.hasArtifacts || run.screenshotPaths.length > 0 || run.videoPaths.length > 0 ? (
+                                  <div>
+                                    <a
+                                      href={`https://github.com/rsmedstad/qa-automation-tool/actions/runs/${run.runId}`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-indigo-600 dark:text-indigo-400 hover:underline inline-flex items-center"
+                                    >
+                                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                                      </svg>
+                                      View Actions ({run.artifactCount || 0})
+                                    </a>
+                                    {run.screenshotPaths.map((url, idx) => (
+                                      <a
+                                        key={`screenshot-${idx}`}
+                                        href={url}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="block text-sm text-blue-500 hover:underline"
+                                      >
+                                        Screenshot {idx + 1}
+                                      </a>
+                                    ))}
+                                    {run.videoPaths.map((url, idx) => (
+                                      <a
+                                        key={`video-${idx}`}
+                                        href={url}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="block text-sm text-blue-500 hover:underline"
+                                      >
+                                        Video {idx + 1}
+                                      </a>
+                                    ))}
+                                  </div>
                                 ) : (
                                   <span className="text-gray-500 dark:text-gray-400">None</span>
                                 )}
