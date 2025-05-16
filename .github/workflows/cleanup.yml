@@ -1,0 +1,33 @@
+name: Cleanup Old Data
+
+on:
+  schedule:
+    - cron: '0 3 * * *'  # daily 3am UTC
+
+env:
+  KV_REST_API_URL: ${{ secrets.KV_REST_API_URL }}
+  KV_REST_API_TOKEN: ${{ secrets.KV_REST_API_TOKEN }}
+  SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+  SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+
+      - name: Cleanup Vercel KV
+        run: |
+          npm install node-fetch@2
+          node scripts/cleanup-vercel-kv.js
+
+      - name: Cleanup Supabase
+        run: |
+          npm install @supabase/supabase-js
+          node scripts/cleanup-supabase.js
