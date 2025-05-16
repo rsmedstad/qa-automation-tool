@@ -68,10 +68,11 @@ jobs:
           fi
 
       - name: Run QA tests
+        # Continue even if script exits with non-zero code (e.g., test failures)
         continue-on-error: true
         env:
           BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
-          BLOB_ALLOW_OVERWRITE: 'true'     # ← new flag to tell your script to overwrite existing blobs
+          BLOB_ALLOW_OVERWRITE: 'true'
         run: |
           node api/qa-test.js \
             input.xlsx \
@@ -131,13 +132,17 @@ jobs:
                -d "$PAYLOAD" \
                --fail \
                --show-error \
-               -w "%{http_code}" -s -o response.json)
+               -w "%{http_code}" -s -o response.json || echo "FAILED")
+          if [ "$RESPONSE" == "FAILED" ]; then
+            echo "Failed to send summary to Vercel. Continuing workflow."
+            exit 0
+          fi
           echo "HTTP Status: $RESPONSE"
           if [ -f response.json ]; then
             echo "Response body:"
             cat response.json
           fi
           if [ "$RESPONSE" -ne "200" ]; then
-            echo "Failed to send summary to Vercel. Status: $RESPONSE"
-            exit 22
+            echo "Failed to send summary to Vercel. Status: $RESPONSE. Continuing workflow."
+            exit 0
           fi

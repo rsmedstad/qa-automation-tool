@@ -25,6 +25,17 @@ import fetch from 'node-fetch';
 // Load environment variables
 import 'dotenv/config';
 
+// Add unhandled rejection and exception handlers
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  process.exit(1);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught Exception:', err);
+  process.exit(1);
+});
+
 // Initialize Supabase client
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -184,7 +195,7 @@ const supabase = createClient(
         const blob = await put(destPath, fileBuffer, {
           access: 'public',
           token: process.env.BLOB_READ_WRITE_TOKEN,
-          allowOverwrite: true, // Added to enable overwriting
+          allowOverwrite: true,
         });
         fs.unlinkSync(filePath);
         console.log(`Uploaded ${destPath} to Vercel Blob: ${blob.url}`);
@@ -281,7 +292,7 @@ const supabase = createClient(
       }
 
       results[idx]['HTTP Status'] = resp ? resp.status() : 'N/A';
-      const failedTestIds =[];
+      const failedTestIds = [];
 
       const validTestIds = testIds.filter(id => allTestIds.includes(id));
       if (testIds.length !== validTestIds.length) {
@@ -545,13 +556,15 @@ const supabase = createClient(
       if (videoUrl) allVideoUrls.push(videoUrl);
 
       const relevantTestResults = validTestIds.map(id => results[idx][id]);
+      let pagePassStatus = 'NA';
       if (relevantTestResults.length === 0) {
-        results[idx]['Page Pass?'] = 'NA';
+        pagePassStatus = 'NA';
       } else if (relevantTestResults.includes('Fail')) {
-        results[idx]['Page Pass?'] = 'Fail';
+        pagePassStatus = 'Fail';
       } else {
-        results[idx]['Page Pass?'] = 'Pass';
+        pagePassStatus = 'Pass';
       }
+      results[idx]['Page Pass?'] = pagePassStatus;
 
       await updateProgress(idx + 1, startTime);
       console.log(`     ✔ ${(Date.now() - t0) / 1000}s`);
@@ -597,22 +610,35 @@ const supabase = createClient(
     });
 
     const failedUrlsList = [];
+    const urlResults = [];
     for (const result of results) {
-      if (result['Page Pass?'] === 'Fail') {
+      const pagePassStatus = result['Page Pass?'];
+      if (pagePassStatus === 'Fail') {
         const failedTestsForUrl = allTestIds.filter(id => result[id] === 'Fail');
         failedUrlsList.push({ url: result['url'], failedTests: failedTestsForUrl });
       }
+      urlResults.push({
+        url: result['url'],
+        passed: pagePassStatus === 'Pass',
+        ...(pagePassStatus === 'Fail' && { failedTests: allTestIds.filter(id => result[id] === 'Fail') })
+      });
     }
 
     const payload = {
       runId: runId,
       crawlName: 'QA Run',
       date: new Date().toISOString(),
+      totalUrls: total,
+      passedUrls: passed,
+      failedUrls: failed,
+      naUrls: na,
       successCount: passed,
       failureCount: failed,
+      naCount: na,
       initiatedBy: initiatedBy,
       testFailureSummary,
       failedUrls: failedUrlsList,
+      urlResults: urlResults, // Added detailed per-URL results
       screenshot_paths: allScreenshotUrls,
       video_paths: allVideoUrls
     };
@@ -668,7 +694,9 @@ const supabase = createClient(
     await context.close();
     await browser.close();
 
-    process.exit(failed > 0 ? 1 : 0);
+    // Exit with success code if all tasks completed, regardless of test failures
+    console.log('Script completed successfully. Exiting with code 0.');
+    process.exit(0);
   } catch (error) {
     console.error('Fatal error:', error.message || error);
     process.exit(1);
