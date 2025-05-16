@@ -172,7 +172,7 @@ export default function Dashboard() {
               tooltip: {
                 backgroundColor: isDarkMode ? 'rgba(40,40,40,0.9)' : 'rgba(245,245,245,0.9)',
                 titleColor: isDarkMode ? '#E5E7EB' : '#374151',
-                body--"Color": isDarkMode ? '#E5E7EB' : '#374151',
+                bbodyColor: isDarkMode ? '#E5E7EB' : '#374151',
                 borderColor: isDarkMode ? '#555' : '#ccc',
                 borderWidth: 1,
               },
