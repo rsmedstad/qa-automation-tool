@@ -119,8 +119,18 @@ jobs:
             summary.json)
           echo "Payload:"
           echo "$PAYLOAD" | jq .
-          curl -X POST "$VERCEL_URL/api/store-run" \
+          RESPONSE=$(curl -X POST "$VERCEL_URL/api/store-run" \
                -H "Content-Type: application/json" \
                -d "$PAYLOAD" \
                --fail \
-               --show-error
+               --show-error \
+               -w "%{http_code}" -s -o response.json)
+          echo "HTTP Status: $RESPONSE"
+          if [ -f response.json ]; then
+            echo "Response body:"
+            cat response.json
+          fi
+          if [ "$RESPONSE" -ne "200" ]; then
+            echo "Failed to send summary to Vercel. Status: $RESPONSE"
+            exit 22
+          fi

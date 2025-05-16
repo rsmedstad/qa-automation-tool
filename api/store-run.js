@@ -1,14 +1,12 @@
 // api/store-run.js
-// Stores QA run data in Vercel KV and limits storage to 120 runs
-
-const { kv } = require('@vercel/kv');
+import { kv } from '@vercel/kv';
 
 // Maximum number of runs to store in KV
 const MAX_RUNS = 120;
 
-// API handler function for POST requests
 /**
  * Handles POST requests to store QA run data in Vercel KV.
+ * 
  * @param {Object} req - The request object containing run data.
  * @param {Object} res - The response object to send back status.
  */
@@ -18,7 +16,8 @@ export default async function handler(req, res) {
 
   // Restrict to POST requests only
   if (req.method !== 'POST') {
-    console.log('Method not allowed:', req.method);
+    console.error('Method not allowed:', req.method);
+    res.setHeader('Allow', ['POST']);
     return res.status(405).json({ message: 'Method Not Allowed' });
   }
 
@@ -28,7 +27,7 @@ export default async function handler(req, res) {
 
   // Validate presence of runId
   if (!runId) {
-    console.log('Missing runId in request body');
+    console.error('Missing runId in request body');
     return res.status(400).json({ message: 'runId is required' });
   }
 
