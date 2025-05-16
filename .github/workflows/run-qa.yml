@@ -146,3 +146,10 @@ jobs:
             echo "Failed to send summary to Vercel. Status: $RESPONSE. Continuing workflow."
             exit 0
           fi
+      
+      - name: Upload summary.json artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: summary-json-${{ github.run_id }}
+          path: summary.json
