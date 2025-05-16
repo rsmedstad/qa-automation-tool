@@ -155,7 +155,7 @@ const supabase = createClient(
     if (!fs.existsSync(videoDir)) fs.mkdirSync(videoDir);
 
     const browser = await chromium.launch();
-    const contextOptions = captureVideo ? { recordVideo: { dir: videoDir } } : {};
+    const contextOptions = { recordVideo: { dir: videoDir } }; // Always enable video recording
     const context = await browser.newContext(contextOptions);
 
     const HTTP_REDIRECT = [301, 302];
@@ -513,14 +513,14 @@ const supabase = createClient(
         }
 
         const video = page.video();
-        if (video && captureVideo) {
+        if (video && (captureVideo || failedTestIds.length > 0)) {
           const videoFilePath = await video.path();
           await video.saveAs(path.join(videoDir, `${safeUrl}-${idx + 1}.webm`));
           const videoFileName = `${safeUrl}-${idx + 1}.webm`;
           const finalVideoPath = path.join(videoDir, videoFileName);
           videoUrl = await uploadFile(finalVideoPath, `videos/${videoFileName}`);
           if (videoUrl) console.log(`Video uploaded: ${videoUrl}`);
-        } else if (video && !captureVideo) {
+        } else if (video && !captureVideo && failedTestIds.length === 0) {
           const videoFilePath = await video.path();
           if (fs.existsSync(videoFilePath)) {
             fs.unlinkSync(videoFilePath);
@@ -638,7 +638,7 @@ const supabase = createClient(
       initiatedBy: initiatedBy,
       testFailureSummary,
       failedUrls: failedUrlsList,
-      urlResults: urlResults, // Added detailed per-URL results
+      urlResults: urlResults,
       screenshot_paths: allScreenshotUrls,
       video_paths: allVideoUrls
     };
@@ -694,7 +694,6 @@ const supabase = createClient(
     await context.close();
     await browser.close();
 
-    // Exit with success code if all tasks completed, regardless of test failures
     console.log('Script completed successfully. Exiting with code 0.');
     process.exit(0);
   } catch (error) {

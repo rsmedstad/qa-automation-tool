@@ -24,7 +24,8 @@ export default function Dashboard() {
   const [testDefinitions, setTestDefinitions] = useState([]);
   const [sfTests, setSfTests] = useState([]);
   const [activeTab, setActiveTab] = useState('testDefinitions');
-  const [expandedRuns, setExpandedRuns] = useState([]); // New state for expanded runs
+  const [expandedRuns, setExpandedRuns] = useState([]);
+  const [activeIssuesTab, setActiveIssuesTab] = useState('last');
   const chartRef = useRef(null);
   const donutChartRef = useRef(null);
 
@@ -241,7 +242,7 @@ export default function Dashboard() {
     };
   }, [runs, isDarkMode]);
 
-  const FailingTestsChart = ({ failedTests }) => {
+  const FailingTestsChart = React.memo(({ failedTests }) => {
     const hasFails = failedTests && Object.keys(failedTests).length > 0;
 
     const data = hasFails ? {
@@ -289,7 +290,21 @@ export default function Dashboard() {
     return (
       <div className="p-4 bg-white dark:bg-gray-800 rounded-xl shadow-lg">
         <div className="py-2 border-b border-gray-200 dark:border-gray-700">
-          <h2 className="text-xl font-semibold text-gray-700 dark:text-gray-300">Latest Crawl Issues</h2>
+          <h2 className="text-xl font-semibold text-gray-700 dark:text-gray-300">Crawl Issues</h2>
+        </div>
+        <div className="flex space-x-4 my-4">
+          <button
+            onClick={() => setActiveIssuesTab('last')}
+            className={`px-4 py-2 rounded-lg ${activeIssuesTab === 'last' ? 'bg-indigo-600 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'}`}
+          >
+            Last Crawl
+          </button>
+          <button
+            onClick={() => setActiveIssuesTab('trended')}
+            className={`px-4 py-2 rounded-lg ${activeIssuesTab === 'trended' ? 'bg-indigo-600 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'}`}
+          >
+            Trended (Last 30)
+          </button>
         </div>
         {hasFails ? (
           <div style={{ height: '300px' }}>
@@ -300,7 +315,7 @@ export default function Dashboard() {
         )}
       </div>
     );
-  };
+  });
 
   const handleAskSubmit = async () => {
     if (!isGeminiEnabled || !question.trim()) return;
@@ -456,6 +471,19 @@ export default function Dashboard() {
 
   const displayedRuns = showAll ? sortedRuns : sortedRuns.slice(0, 5);
 
+  const trendedFailedTests = useMemo(() => {
+    const last30Runs = sortedRuns.slice(0, 30);
+    const aggregated = {};
+    last30Runs.forEach(run => {
+      if (run.failed_tests) {
+        Object.entries(run.failed_tests).forEach(([testId, count]) => {
+          aggregated[testId] = (aggregated[testId] || 0) + count;
+        });
+      }
+    });
+    return aggregated;
+  }, [sortedRuns]);
+
   const getInsightMessage = (run) => {
     if (!run) return 'No crawls have been run yet.';
     const date = new Date(run.date).toLocaleString('en-US', {
@@ -549,7 +577,7 @@ export default function Dashboard() {
 
             <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 mb-6 items-start">
               <div className="lg:col-span-1">
-                <FailingTestsChart failedTests={sortedRuns[0]?.failed_tests} />
+                <FailingTestsChart failedTests={activeIssuesTab === 'last' ? sortedRuns[0]?.failed_tests : trendedFailedTests} />
               </div>
               <div className="lg:col-span-3 p-4 bg-white dark:bg-gray-800 rounded-xl shadow-lg">
                 <div className="sticky top-0 bg-white dark:bg-gray-800 z-20 py-2 border-b border-gray-200 dark:border-gray-700">
@@ -587,80 +615,90 @@ export default function Dashboard() {
                         </thead>
                         <tbody>
                           {displayedRuns.map((run, index) => (
-                            <tr
-                              key={run.runId || `run-${index}`}
-                              className={`border-b border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors ${
-                                index % 2 === 0 ? 'bg-white dark:bg-gray-800' : 'bg-gray-50 dark:bg-gray-800/60'
-                              }`}
-                            >
-                              <td className="p-3 whitespace-nowrap">{run.crawlName || 'N/A'}</td>
-                              <td className="p-3 whitespace-nowrap">
-                                {new Date(run.date).toLocaleString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'America/Chicago' })}
-                              </td>
-                              <td className="p-3 whitespace-nowrap">{run.initiator || 'N/A'}</td>
-                              <td className="p-3 text-green-600 dark:text-green-400 font-medium text-center">{run.successCount || 0}</td>
-                              <td className="p-3 text-red-600 dark:text-red-400 font-medium text-center">{run.failureCount || 0}</td>
-                              <td className="p-3">
-                                {run.hasArtifacts || run.screenshotPaths.length > 0 || run.videoPaths.length > 0 ? (
-                                  <div>
-                                    <a
-                                      href={`https://github.com/rsmedstad/qa-automation-tool/actions/runs/${run.runId}`}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="text-indigo-600 dark:text-indigo-400 hover:underline inline-flex items-center"
-                                    >
-                                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                                      </svg>
-                                      View Actions ({run.artifactCount || 0})
-                                    </a>
-                                    {(run.screenshotPaths.length > 0 || run.videoPaths.length > 0) && (
-                                      <button
-                                        onClick={() =>
-                                          setExpandedRuns((prev) =>
-                                            prev.includes(run.runId)
-                                              ? prev.filter((id) => id !== run.runId)
-                                              : [...prev, run.runId]
-                                          )
-                                        }
-                                        className="ml-2 text-blue-500 hover:underline text-sm"
+                            <>
+                              <tr
+                                key={run.runId || `run-${index}`}
+                                className={`border-b border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors ${
+                                  index % 2 === 0 ? 'bg-white dark:bg-gray-800' : 'bg-gray-50 dark:bg-gray-800/60'
+                                }`}
+                              >
+                                <td className="p-3 whitespace-nowrap">{run.crawlName || 'N/A'}</td>
+                                <td className="p-3 whitespace-nowrap">
+                                  {new Date(run.date).toLocaleString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'America/Chicago' })}
+                                </td>
+                                <td className="p-3 whitespace-nowrap">{run.initiator || 'N/A'}</td>
+                                <td className="p-3 text-green-600 dark:text-green-400 font-medium text-center">{run.successCount || 0}</td>
+                                <td className="p-3 text-red-600 dark:text-red-400 font-medium text-center">{run.failureCount || 0}</td>
+                                <td className="p-3">
+                                  {run.hasArtifacts || run.screenshotPaths.length > 0 || run.videoPaths.length > 0 ? (
+                                    <div>
+                                      <a
+                                        href={`https://github.com/rsmedstad/qa-automation-tool/actions/runs/${run.runId}`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-indigo-600 dark:text-indigo-400 hover:underline inline-flex items-center"
                                       >
-                                        {expandedRuns.includes(run.runId) ? 'Hide' : 'Show'} Artifacts (
-                                        {run.screenshotPaths.length + run.videoPaths.length})
-                                      </button>
-                                    )}
-                                    {expandedRuns.includes(run.runId) && (
-                                      <div className="mt-2 space-y-1 pl-4">
-                                        {run.screenshotPaths.map((url, idx) => (
-                                          <a
-                                            key={`screenshot-${idx}`}
-                                            href={url}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="block text-sm text-blue-500 hover:underline"
-                                          >
-                                            Screenshot {idx + 1}
-                                          </a>
-                                        ))}
-                                        {run.videoPaths.map((url, idx) => (
-                                          <a
-                                            key={`video-${idx}`}
-                                            href={url}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="block text-sm text-blue-500 hover:underline"
-                                          >
-                                            Video {idx + 1}
-                                          </a>
-                                        ))}
-                                      </div>
-                                    )}
-                                  </div>
-                                ) : (
-                                  <span className="text-gray-500 dark:text-gray-400">None</span>
-                                )}
-                              </td>
-                            </tr>
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                                          <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                                        </svg>
+                                        View Actions ({run.artifactCount || 0})
+                                      </a>
+                                      {(run.screenshotPaths.length > 0 || run.videoPaths.length > 0) && (
+                                        <button
+                                          onClick={() =>
+                                            setExpandedRuns((prev) =>
+                                              prev.includes(run.runId)
+                                                ? prev.filter((id) => id !== run.runId)
+                                                : [...prev, run.runId]
+                                            )
+                                          }
+                                          className="ml-2 text-blue-500 hover:underline text-sm"
+                                        >
+                                          {expandedRuns.includes(run.runId) ? 'Hide' : 'Show'} Artifacts (
+                                          {run.screenshotPaths.length + run.videoPaths.length})
+                                        </button>
+                                      )}
+                                    </div>
+                                  ) : (
+                                    <span className="text-gray-500 dark:text-gray-400">None</span>
+                                  )}
+                                </td>
+                              </tr>
+                              {expandedRuns.includes(run.runId) && (
+                                <tr>
+                                  <td colSpan="6" className="p-3 bg-gray-100 dark:bg-gray-700">
+                                    {[
+                                      ...run.screenshotPaths.map((url, idx) => (
+                                        <a
+                                          key={`screenshot-${idx}`}
+                                          href={url}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="text-blue-500 hover:underline text-sm"
+                                        >
+                                          Screenshot {idx + 1}
+                                        </a>
+                                      )),
+                                      ...run.videoPaths.map((url, idx) => (
+                                        <a
+                                          key={`video-${idx}`}
+                                          href={url}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="text-blue-500 hover:underline text-sm"
+                                        >
+                                          Video {idx + 1}
+                                        </a>
+                                      )),
+                                    ]
+                                      .reduce((acc, curr, i) => (i === 0 ? [curr] : [...acc, ', ', curr]), [])
+                                      .map((elem, i) => (
+                                        <React.Fragment key={i}>{elem}</React.Fragment>
+                                      ))}
+                                  </td>
+                                </tr>
+                              )}
+                            </>
                           ))}
                         </tbody>
                       </table>
