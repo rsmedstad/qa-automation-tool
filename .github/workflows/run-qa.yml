@@ -11,7 +11,7 @@ on:
         default: 'github-action'
       file_url:
         description: 'URL to the input.xlsx file'
-        required: false  # Optional for scheduled runs
+        required: false
       passphrase:
         description: 'Secret phrase'
         required: true
@@ -67,6 +67,8 @@ jobs:
 
       - name: Run QA tests
         continue-on-error: true
+        env:
+          BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
         run: |
           node api/qa-test.js input.xlsx results-${{ github.run_id }}.xlsx "${{ env.INITIATOR }}" "${{ inputs.capture_video }}"
 
@@ -83,7 +85,7 @@ jobs:
         with:
           name: screenshots-${{ github.run_id }}
           path: screenshots/*.png
-          if-no-files-found: ignore  # Don't fail if no screenshots
+          if-no-files-found: ignore
 
       - name: Check for video files
         id: check_videos
