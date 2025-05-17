@@ -1,1 +1,22 @@
-{"passed":3,"failed":1,"na":0}
+{
+  "runId": "run-1747523873977",
+  "crawlName": "QA Run",
+  "date": "2025-05-17T23:18:15.050Z",
+  "totalUrls": 1,
+  "passedUrls": 1,
+  "failedUrls": [],
+  "naUrls": 0,
+  "successCount": 1,
+  "failureCount": 0,
+  "naCount": 0,
+  "initiatedBy": "ryan",
+  "testFailureSummary": {},
+  "urlResults": [
+    {
+      "url": "https://www.gehealthcare.com/products/ultrasound",
+      "passed": true
+    }
+  ],
+  "screenshot_paths": [],
+  "video_paths": []
+}

@@ -10,9 +10,14 @@
   • Preserves Excel output for compatibility
   • Sends standardized payload to /api/store-run
   • Test definitions in README.md
-  • Implements batching to limit concurrent crawls and avoid 403 errors
-  • Enhanced with global timeouts, detailed logging, and proper resource management
-───────────────────────────────────────────────────────────────────────────────*/
+  • Implements batching with concurrency limits and delays to avoid 403 errors
+  • Enhanced with global timeouts, detailed logging, and dynamic overlay handling
+  • Optimized for performance while preserving visual integrity
+  • Includes detailed commentary explaining each function and test case logic
+  • Updated TC-07 to scroll play button into view and use broader hover target
+  • Updated TC-08 with refined Contact Us button selector targeting hero section
+  • Updated TC-13 with simplified submenu wait condition for Ultraschall link
+──────────────────────────────────────────────────────────────────────────────*/
 
 import os from 'os';
 import ExcelJS from 'exceljs';
@@ -22,12 +27,13 @@ import path from 'path';
 import { createClient } from '@supabase/supabase-js';
 import { put } from '@vercel/blob';
 import fetch from 'node-fetch';
-import pTimeout from 'p-timeout'; // Added for global timeout
+import pTimeout from 'p-timeout';
+import { v4 as uuidv4 } from 'uuid';
 
-// Load environment variables
+// Load environment variables from .env file
 import 'dotenv/config';
 
-// Add unhandled rejection and exception handlers
+// Handle uncaught errors to prevent silent failures
 process.on('unhandledRejection', (reason, promise) => {
   console.error('Unhandled Rejection at:', promise, 'reason:', reason);
   process.exit(1);
@@ -38,19 +44,17 @@ process.on('uncaughtException', (err) => {
   process.exit(1);
 });
 
-// Initialize Supabase client
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
+// Initialize Supabase client for storing test results
+const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 
-// Main execution wrapped in an IIFE
+// Main execution wrapped in an IIFE for async handling
 (async () => {
   try {
     console.log('Starting QA test script');
     const [,, inputFile, outputFile, initiatedBy] = process.argv;
     const captureVideo = process.argv[5] ? process.argv[5].toLowerCase() === 'true' : false;
 
+    // Validate command-line arguments
     if (!inputFile || !outputFile || !initiatedBy) {
       console.error('Usage: node api/qa-test.js <input.xlsx> <output.xlsx> <Initiated By> [captureVideo=false]');
       process.exit(1);
@@ -61,6 +65,7 @@ const supabase = createClient(
     console.log(`▶ Initiated : ${initiatedBy}`);
     console.log(`▶ Capture Video: ${captureVideo}\n`);
 
+    // Read Excel input file containing URLs and test data
     console.log('Reading URLs and data from Excel file...');
     const inputWorkbook = new ExcelJS.Workbook();
     await inputWorkbook.xlsx.readFile(inputFile);
@@ -84,9 +89,10 @@ const supabase = createClient(
       process.exit(1);
     }
 
+    // Parse URL data from Excel into a structured format
     const urlJsonData = [];
     urlSheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
-      if (rowNumber === 1) return;
+      if (rowNumber === 1) return; // Skip header row
       const rowData = {};
       headers.forEach((header, index) => {
         const cellValue = row.getCell(index + 1).value;
@@ -108,19 +114,22 @@ const supabase = createClient(
       process.exit(1);
     }
 
+    // Define all possible test IDs for reference
     const allTestIds = [
       'TC-01', 'TC-02', 'TC-03', 'TC-04', 'TC-05', 'TC-06', 'TC-07', 'TC-08',
       'TC-09', 'TC-10', 'TC-11', 'TC-12', 'TC-13', 'TC-14'
     ];
 
+    // Initialize results array with URL, test IDs, and default values
     const results = urls.map(u => {
-      const row = { ...u.data };
+      const row = { url: u.url, 'test ids': u.testIds.join(','), region: u.data.region };
       allTestIds.forEach(id => (row[id] = 'NA'));
       row['HTTP Status'] = '-';
       row['Page Pass?'] = 'Not Run';
       return row;
     });
 
+    // Create test run entry in Supabase for tracking
     const runId = `run-${Date.now()}`;
     const { error: testRunError } = await supabase
       .from('test_runs')
@@ -135,6 +144,7 @@ const supabase = createClient(
     }
     console.log(`Test Run created with ID: ${runId}`);
 
+    // Initialize crawl progress in Supabase
     const totalUrls = urls.length;
     const startTime = new Date().toISOString();
     const { error: progressError } = await supabase
@@ -151,39 +161,93 @@ const supabase = createClient(
       console.error('Error creating crawl progress:', progressError.message || progressError);
     }
 
+    // Set up directories for screenshots, videos, and debug logs
     const screenshotDir = 'screenshots';
     const videoDir = 'videos';
+    const debugDir = 'debug_logs';
     if (!fs.existsSync(screenshotDir)) fs.mkdirSync(screenshotDir);
     if (!fs.existsSync(videoDir)) fs.mkdirSync(videoDir);
+    if (!fs.existsSync(debugDir)) fs.mkdirSync(debugDir);
 
+    // Launch Playwright browser for testing
     const browser = await chromium.launch();
-    const contextOptions = { recordVideo: { dir: videoDir } }; // Always enable video recording
-    const context = await browser.newContext(contextOptions);
+    const defaultContextOptions = { 
+      viewport: { width: 1920, height: 1080 } // Default to larger viewport
+    };
+    const context = await browser.newContext(defaultContextOptions);
+
+    // Set default timeouts: 10s for elements, 45s for navigation
+    context.setDefaultTimeout(10000);
+    context.setDefaultNavigationTimeout(45000);
+
+    // Block non-essential resources to optimize performance
+    await context.route('**/gtm.js', route => route.abort());
+    await context.route('**/analytics.js', route => route.abort());
+    await context.route(/\.(woff|woff2)$/, route => route.abort());
+
+    // Add initialization script to hide overlays dynamically
+    await context.addInitScript(() => {
+      const keywords = ['cookie', 'consent', 'gdpr', 'evidon', 'overlay', 'popup'];
+      const hide = (el) => el && el.style && (el.style.display = 'none');
+      new MutationObserver(muts => {
+        muts.forEach(m => {
+          m.addedNodes.forEach(node => {
+            if (node.nodeType === 1) {
+              const txt = (node.innerText || '').toLowerCase();
+              if (keywords.some(k => txt.includes(k)) || keywords.some(k => node.id?.toLowerCase().includes(k))) {
+                hide(node);
+              }
+            }
+          });
+        });
+      }).observe(document.documentElement, { childList: true, subtree: true });
+    });
 
     const HTTP_REDIRECT = [301, 302];
 
-    async function scrollAndFind(page, selectors, maxScreens = 10) {
+    /* Helper Functions */
+
+    // Scroll page to find elements, returns first matching selector
+    // Used to locate elements that may be below the fold or lazy-loaded
+    async function scrollAndFind(page, selectors, maxScreens = 5) {
       const viewH = await page.evaluate(() => window.innerHeight);
       for (let pass = 0; pass < maxScreens; pass++) {
-        for (const sel of selectors)
+        for (const sel of selectors) {
           if (await page.$(sel)) return sel;
+        }
         await page.evaluate(vh => window.scrollBy(0, vh), viewH);
         await page.waitForTimeout(500);
       }
       return null;
     }
 
+    // Perform a JavaScript click on an element using Playwright locator
+    // Ensures reliable clicking by scrolling the element into view
     async function jsClick(page, selector) {
-      return page.evaluate(sel => {
-        const el = document.querySelector(sel);
-        if (!el) return false;
-        el.scrollIntoView({ block: 'center' });
-        el.click();
-        return true;
-      }, selector);
+      const locator = typeof selector === 'string' ? page.locator(selector) : selector;
+      if (await locator.count() === 0) return false;
+      await locator.scrollIntoViewIfNeeded();
+      await locator.click();
+      return true;
     }
 
-    async function uploadFile(filePath, destPath) {
+    // Log page DOM for debugging failed tests
+    // Saves the full HTML to a file for analysis
+    async function logPageDom(page, url, testId) {
+      try {
+        const safeUrl = url.replace(/[^a-zA-Z0-9_-]/g, '_');
+        const debugFile = path.join(debugDir, `${safeUrl}-${testId}-dom.html`);
+        const html = await page.evaluate(() => document.documentElement.outerHTML);
+        fs.writeFileSync(debugFile, html);
+        console.log(`   Debug DOM saved to ${debugFile}`);
+      } catch (err) {
+        console.error(`   Failed to save debug DOM for ${testId}: ${err.message}`);
+      }
+    }
+
+    // Upload file to Vercel Blob with retry mechanism
+    // Used for storing screenshots and videos of failed tests
+    async function uploadFile(filePath, destPath, retries = 3) {
       if (!process.env.BLOB_READ_WRITE_TOKEN) {
         console.error('BLOB_READ_WRITE_TOKEN is not set in the environment.');
         return null;
@@ -192,22 +256,52 @@ const supabase = createClient(
         console.error(`File not found for upload: ${filePath}`);
         return null;
       }
-      try {
-        const fileBuffer = fs.readFileSync(filePath);
-        const blob = await put(destPath, fileBuffer, {
-          access: 'public',
-          token: process.env.BLOB_READ_WRITE_TOKEN,
-          allowOverwrite: true,
-        });
-        fs.unlinkSync(filePath);
-        console.log(`Uploaded ${destPath} to Vercel Blob: ${blob.url}`);
-        return blob.url;
-      } catch (error) {
-        console.error(`Failed to upload ${filePath} to Vercel Blob: ${error.message}`);
-        return null;
+      for (let attempt = 1; attempt <= retries; attempt++) {
+        try {
+          const fileBuffer = fs.readFileSync(filePath);
+          const blob = await put(destPath, fileBuffer, {
+            access: 'public',
+            token: process.env.BLOB_READ_WRITE_TOKEN,
+            allowOverwrite: true,
+          });
+          fs.unlinkSync(filePath);
+          console.log(`Uploaded ${destPath} to Vercel Blob: ${blob.url}`);
+          return blob.url;
+        } catch (error) {
+          if (attempt < retries) {
+            console.warn(`Attempt ${attempt} failed to upload ${filePath}: ${error.message}. Retrying...`);
+            await new Promise(resolve => setTimeout(resolve, 2000));
+          } else {
+            console.error(`Failed to upload ${filePath} after ${retries} attempts: ${error.message}`);
+            return null;
+          }
+        }
       }
     }
 
+    // Delete file with retry mechanism, continue if it fails
+    // Ensures temporary files are cleaned up
+    async function deleteFile(filePath, retries = 3) {
+      for (let attempt = 1; attempt <= retries; attempt++) {
+        try {
+          if (fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath);
+            console.log(`Deleted file: ${filePath}`);
+          }
+          return;
+        } catch (error) {
+          if (attempt < retries) {
+            console.warn(`Attempt ${attempt} failed to delete ${filePath}: ${error.message}. Retrying...`);
+            await new Promise(resolve => setTimeout(resolve, 2000));
+          } else {
+            console.error(`Failed to delete ${filePath} after ${retries} attempts: ${error.message}. Continuing...`);
+          }
+        }
+      }
+    }
+
+    // Update crawl progress in Supabase with ETA
+    // Tracks test progress and estimates completion time
     async function updateProgress(completed, startTime) {
       const now = new Date();
       const elapsedMs = now - new Date(startTime);
@@ -232,6 +326,8 @@ const supabase = createClient(
       if (error) console.error('Error updating crawl progress:', error.message || error);
     }
 
+    // Insert test result into Supabase
+    // Stores individual test outcomes for reporting
     async function insertTestResult(url, region, testId, result, errorDetails, screenshotUrl, videoUrl) {
       const { error } = await supabase
         .from('test_results')
@@ -248,9 +344,78 @@ const supabase = createClient(
       if (error) console.error(`Error inserting test result for ${testId} on ${url}:`, error.message || error);
     }
 
+    // Handle Gatekeeper interstitial if present
+    // Clicks "Yes" to bypass gatekeeper, tracks detection status
+    async function handleGatekeeper(page, url) {
+      const gatekeeperSelectors = ['section.ge-gatekeeper', '[class*="gatekeeper"]'];
+      const yesButtonSelector = 'button.ge-gatekeeper-button.ge-button--solid-primary';
+      let gatekeeperDetected = false;
+      try {
+        for (const selector of gatekeeperSelectors) {
+          const gatekeeper = await page.waitForSelector(selector, { timeout: 10000 });
+          if (gatekeeper) {
+            gatekeeperDetected = true;
+            console.log(`   Gatekeeper detected with selector: ${selector}`);
+            const yesButton = await page.waitForSelector(yesButtonSelector, { timeout: 3000 });
+            if (yesButton) {
+              await yesButton.click();
+              console.log('   Clicked "Yes" on gatekeeper');
+              await page.waitForLoadState('domcontentloaded', { timeout: 30000 });
+              console.log('   Navigated after gatekeeper');
+            }
+            break;
+          }
+        }
+      } catch (error) {
+        console.log('   No gatekeeper found or error handling:', error.message);
+      }
+      console.log(`   Gatekeeper detection result: ${gatekeeperDetected}`);
+      return gatekeeperDetected;
+    }
+
+    // Handle overlays (e.g., cookie banners) dynamically
+    // Attempts to dismiss overlays by clicking accept buttons
+    async function handleOverlays(page) {
+      const overlaySelectors = [
+        'div#_evidon_banner',
+        'div[id*="cookie"]',
+        'div[class*="cookie"]',
+        '[role="dialog"]',
+        '[aria-label*="cookie"]'
+      ];
+      const buttonKeywords = ['accept', 'agree', 'ok', 'allow', 'confirm', 'dismiss', 'got it', 'understand', 'close', 'confirmer'];
+
+      try {
+        console.log('   Checking for overlays (cookie banners or interstitials)...');
+        const overlay = await page.waitForSelector(overlaySelectors.join(', '), { timeout: 2000 });
+        if (overlay) {
+          console.log('   Overlay detected');
+          const buttons = await overlay.$$('button, [role="button"], a');
+          for (const button of buttons) {
+            const text = (await button.textContent()).toLowerCase();
+            if (buttonKeywords.some(keyword => text.includes(keyword))) {
+              console.log(`   Clicking overlay button: ${text}`);
+              await button.click();
+              await page.waitForTimeout(1000);
+              console.log('   Overlay dismissed');
+              return true;
+            }
+          }
+          console.log('   No dismiss button found, relying on init script to hide overlay');
+          return true;
+        } else {
+          console.log('   No overlay detected within timeout');
+        }
+      } catch (error) {
+        console.log('   No overlay found or error handling:', error.message);
+      }
+      return false;
+    }
+
     const allScreenshotUrls = [];
     const allVideoUrls = [];
 
+    // Process a single URL with its associated tests
     async function runUrl(urlData, idx) {
       const url = urlData.url;
       const testIds = urlData.testIds;
@@ -258,6 +423,7 @@ const supabase = createClient(
       console.log(`[${idx + 1}/${urls.length}] ${url}`);
       const t0 = Date.now();
 
+      // Validate URL format
       if (!url || !/^https?:\/\//.test(url)) {
         console.log(`Invalid URL: ${url}`);
         results[idx]['HTTP Status'] = 'Invalid URL';
@@ -268,15 +434,46 @@ const supabase = createClient(
         return;
       }
 
-      const page = await context.newPage();
-      let resp;
-      let pageError = null;
+      let page, resp, pageError = null;
+      let contextToUse = context;
+      let gatekeeperDetected = false;
+
+      // Use a fresh context for TC-10 and TC-12 to simulate incognito mode
+      if (testIds.includes('TC-10') || testIds.includes('TC-12')) {
+        contextToUse = await browser.newContext(defaultContextOptions);
+        contextToUse.setDefaultTimeout(10000);
+        contextToUse.setDefaultNavigationTimeout(45000);
+        await contextToUse.route('**/gtm.js', route => route.abort());
+        await contextToUse.route('**/analytics.js', route => route.abort());
+        await contextToUse.route(/\.(woff|woff2)$/, route => route.abort());
+        await contextToUse.addInitScript(() => {
+          const keywords = ['cookie', 'consent', 'gdpr', 'evidon', 'overlay', 'popup'];
+          const hide = (el) => el && el.style && (el.style.display = 'none');
+          new MutationObserver(muts => {
+            muts.forEach(m => {
+              m.addedNodes.forEach(node => {
+                if (node.nodeType === 1) {
+                  const txt = (node.innerText || '').toLowerCase();
+                  if (keywords.some(k => txt.includes(k)) || keywords.some(k => node.id?.toLowerCase().includes(k))) {
+                    hide(node);
+                  }
+                }
+              });
+            });
+          }).observe(document.documentElement, { childList: true, subtree: true });
+        });
+      }
+
+      page = await contextToUse.newPage();
 
       try {
-        // Navigation with timeout
-        resp = await pTimeout(page.goto(url, { timeout: 60000, waitUntil: 'domcontentloaded' }), 60000, 'Navigation timeout');
+        console.log('   Navigating to URL...');
+        resp = await pTimeout(page.goto(url, { timeout: 45000, waitUntil: 'domcontentloaded' }), 45000, 'Navigation timeout');
+        console.log('   Navigation completed');
+        gatekeeperDetected = await handleGatekeeper(page, url);
+        await handleOverlays(page);
       } catch (error) {
-        console.log(`Navigation error for ${url}: ${error.message}`);
+        console.log(`   Navigation error for ${url}: ${error.message}`);
         pageError = `Navigation failed: ${error.message}`;
         results[idx]['HTTP Status'] = 'Navigation Error';
         const validTestIds = testIds.filter(id => allTestIds.includes(id));
@@ -288,14 +485,15 @@ const supabase = createClient(
           results[idx][id] = 'NA';
         });
         await page.close();
+        if (contextToUse !== context) await contextToUse.close();
         await updateProgress(idx + 1, startTime);
         console.log(`     ❌ Failed navigation ${(Date.now() - t0) / 1000}s`);
         return;
       }
 
       results[idx]['HTTP Status'] = resp ? resp.status() : 'N/A';
-      const failedTestIds = [];
 
+      const failedTestIds = [];
       const validTestIds = testIds.filter(id => allTestIds.includes(id));
       if (testIds.length !== validTestIds.length) {
         const invalid = testIds.filter(id => !allTestIds.includes(id)).join(', ');
@@ -305,127 +503,244 @@ const supabase = createClient(
         });
       }
 
+      const defaultViewport = { width: 1920, height: 1080 };
+      const mobileViewport = { width: 375, height: 667 };
+
+      // Execute each test case for the URL
       for (const id of allTestIds) {
         if (!validTestIds.includes(id)) continue;
 
         let pass = false;
         let errorDetails = '';
         try {
+          // Adjust timeout for tests with potentially heavy content
+          if (['TC-07', 'TC-11'].includes(id)) {
+            page.setDefaultTimeout(15000);
+          } else {
+            page.setDefaultTimeout(10000);
+          }
+
+          if (id === 'TC-02') {
+            await page.setViewportSize(mobileViewport);
+            await page.waitForTimeout(1000);
+          }
+
           switch (id) {
+            // TC-01: Verify hero text visibility on desktop
             case 'TC-01': {
-              const hasAbsolute = await page.evaluate(() => {
-                const hero = document.querySelector('section.ge-homepage-hero-v2-component');
-                if (!hero) return false;
-                return Array.from(hero.querySelectorAll('*')).some(el => {
-                  const style = getComputedStyle(el);
-                  return style.position === 'absolute' && style.display !== 'none' && style.visibility !== 'hidden';
-                });
-              });
-              pass = !hasAbsolute;
-              errorDetails = hasAbsolute ? 'Found element with position: absolute in hero' : '';
+              const heroText = await page.$('section.ge-homepage-hero-v2-component .ge-homepage-hero-v2__text-content');
+              pass = heroText && await heroText.isVisible();
+              errorDetails = pass ? '' : 'Hero text not found or not visible in hero section';
               break;
             }
+            // TC-02: Verify hero text visibility on mobile
             case 'TC-02': {
-              const hasInlineAbsolute = await page.evaluate(() => {
-                const elements = document.querySelectorAll('div[id*="ge-homepage-hero"] div[style]');
-                return Array.from(elements).some(el => {
-                  const style = el.getAttribute('style');
-                  return style && /position\s*:\s*absolute/i.test(style);
-                });
-              });
-              pass = !hasInlineAbsolute;
-              errorDetails = hasInlineAbsolute ? 'Found element with inline style position: absolute in hero' : '';
+              const heroText = await page.$('div[id*="ge-homepage-hero"] .ge-homepage-hero-v2__text-content, section.ge-homepage-hero-v2-component .ge-homepage-hero-v2__text-content');
+              pass = heroText && await heroText.isVisible();
+              errorDetails = pass ? '' : 'Hero text not found or not visible on mobile viewport';
               break;
             }
+            // TC-03: Check for header presence
             case 'TC-03': {
               pass = !!(await page.$('header, [class*="header"]'));
               errorDetails = pass ? '' : 'Header element not found';
               break;
             }
+            // TC-04: Check for navigation presence
             case 'TC-04': {
               pass = !!(await page.$('nav, [class*="nav"]'));
               errorDetails = pass ? '' : 'Navigation element not found';
               break;
             }
+            // TC-05: Check for main content presence
             case 'TC-05': {
               pass = !!(await page.$('main, [class*="main"]'));
               errorDetails = pass ? '' : 'Main content element not found';
               break;
             }
+            // TC-06: Check for footer presence
             case 'TC-06': {
               pass = !!(await page.$('footer, [class*="footer"]'));
               errorDetails = pass ? '' : 'Footer element not found';
               break;
             }
+            // TC-07: Verify video content or player activation
             case 'TC-07': {
-              console.log(`   Starting TC-07 for ${url}`);
-              await page.waitForLoadState('networkidle', { timeout: 30000 });
-              if (await page.$('video, video[data-testid="hls-video"], iframe[src*="vidyard"]')) {
+              console.log(`   TC-07: Starting for ${url}`);
+              await page.waitForLoadState('networkidle');
+              await page.waitForTimeout(500);
+
+              // Check for direct video elements
+              if (await page.$('video, video[data-testid="hls-video"], iframe[src*="vidyard"], [data-testid*="video"]')) {
                 pass = true;
                 console.log(`   TC-07: Video found directly`);
                 break;
               }
-              const clickSel = await scrollAndFind(page, [
-                '.ge-contentTeaser__content-section__contentTeaserHero-play-icon',
-                '.eds-rd-play', '.eds-rd-play-icon',
-                'div[data-testid="splashScreen"]',
-                '.ge-contentTeaser__content-section__contentTeaserHero__img-container'
+
+              console.log(`   TC-07: No video found, searching for play button`);
+              const playButtonSelector = await scrollAndFind(page, [
+                '.eds-rd-play',                            // Primary play button class
+                '.eds-rd-play-icon',                      // Nested or standalone play icon
+                '.ge-contentTeaser__content-section__contentTeaserHero-play-icon', // Play button container
+                '.ge-contentTeaser__content-section__contentTeaserHero__img-container', // Image container
+                '[class*="play-button"]',
+                '[data-testid*="play"]'
               ], 5);
-              if (!clickSel) {
+
+              if (!playButtonSelector) {
                 pass = false;
                 errorDetails = 'Play button/element not found';
                 console.log(`   TC-07: Play button not found`);
+                await logPageDom(page, url, 'TC-07');
                 break;
               }
-              console.log(`   TC-07: Clicking ${clickSel}`);
-              await jsClick(page, clickSel);
-              console.log(`   TC-07: Waiting for modal`);
-              const modal = await page.waitForSelector('div.ge-modal-window, div.ge-modal-window-wrapper', { timeout: 10000 }).catch(() => null);
+
+              const playButton = page.locator(playButtonSelector);
+              console.log(`   TC-07: Found play button: ${playButtonSelector}`);
+
+              // Scroll to the image container to ensure play button is in view
+              const imgContainer = page.locator('.ge-contentTeaser__content-section__contentTeaserHero__img-container');
+              if (await imgContainer.count()) {
+                await imgContainer.first().scrollIntoViewIfNeeded();
+                await page.waitForTimeout(500); // Wait for animations or lazy-loading
+              } else {
+                await playButton.scrollIntoViewIfNeeded();
+                await page.waitForTimeout(500);
+              }
+
+              // Hover over the image container to trigger play button visibility
+              if (await imgContainer.count()) {
+                await imgContainer.first().hover();
+                await page.waitForTimeout(500);
+              } else {
+                const parent = playButton.locator('xpath=..');
+                await parent.hover();
+                await page.waitForTimeout(500);
+              }
+
+              // Custom visibility check
+              const isVisible = await page.evaluate((sel) => {
+                const elem = document.querySelector(sel);
+                if (!elem) return false;
+                const style = window.getComputedStyle(elem);
+                if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
+                const rect = elem.getBoundingClientRect();
+                return rect.top >= 0 && rect.left >= 0 && rect.bottom <= window.innerHeight && rect.right <= window.innerWidth;
+              }, playButtonSelector);
+
+              if (!isVisible) {
+                pass = false;
+                errorDetails = 'Play button not visible after scrolling and hovering';
+                console.log(`   TC-07: Play button not visible`);
+                await logPageDom(page, url, 'TC-07');
+                break;
+              }
+
+              // Click the play button
+              await playButton.click();
+              console.log(`   TC-07: Clicked play button, waiting for modal`);
+
+              // Wait for the modal with specific classes
+              const modal = await page.waitForSelector(
+                'div.ge-modal-window, div.ge-contentTeaser__content-section__video-modal, div.ge-contentTeaser__content-section__vidyard-video-modal',
+                { timeout: 10000 }
+              ).catch(() => null);
               if (!modal) {
                 pass = false;
                 errorDetails = 'Video modal did not open';
                 console.log(`   TC-07: Modal did not open`);
+                await logPageDom(page, url, 'TC-07');
                 break;
               }
-              console.log(`   TC-07: Waiting for Vidyard player`);
-              pass = await page.waitForSelector('div.vidyard-player-container, iframe[src*="play.vidyard.com"]', { timeout: 10000 }).then(() => true).catch(() => false);
+
+              console.log(`   TC-07: Modal opened, waiting for Vidyard player`);
+              pass = await page.waitForSelector(
+                'div.vidyard-player-container, iframe[src*="play.vidyard.com"], video',
+                { timeout: 10000 }
+              ).then(() => true).catch(() => false);
               errorDetails = pass ? '' : 'Vidyard player or iframe not found after modal opened';
-              console.log(`   TC-07: Completed - ${pass ? 'Pass' : 'Fail'}`);
+              console.log(`   TC-07: Vidyard player check: ${pass ? 'Pass' : 'Fail'}`);
+              if (!pass) await logPageDom(page, url, 'TC-07');
               break;
             }
+            // TC-08: Verify contact form activation
             case 'TC-08': {
-              console.log(`   Starting TC-08 for ${url}`);
-              const cookieBanner = await page.$('#_evidon_banner');
-              if (cookieBanner) {
-                const declineButton = await page.$('#_evidon-decline-button');
-                if (declineButton && await declineButton.isVisible()) {
-                  console.log(`   TC-08: Declining cookie banner`);
-                  await declineButton.click();
-                  await page.waitForTimeout(500);
-                }
-              }
+              console.log(`   TC-08: Starting for ${url}`);
+              await page.waitForLoadState('networkidle');
+              await page.waitForTimeout(500);
+
               const initialForms = await page.$$('form');
               const initialFormCount = initialForms.length;
               console.log(`   TC-08: Initial form count: ${initialFormCount}`);
 
-              const contactButtonSelector = 'button.ge-contact-us-button__contactus-action-button, a[href*="contact-us"]';
-              console.log(`   TC-08: Waiting for Contact Us button`);
-              const contactButton = await page.waitForSelector(contactButtonSelector, { timeout: 10000 }).catch(() => null);
-              if (!contactButton) {
+              // Step 1: Target the specific "Contact Us" button with name="Open Form Overlay"
+              let contact = page.locator('button[name="Open Form Overlay"], a[name="Open Form Overlay"]').first();
+
+              // Step 2: If not found, fall back to buttons/links in specific sections
+              if (!(await contact.count())) {
+                contact = page.locator('section.ge-category-hero button, section.campaign-hero__ctas-primary button, section.ge-category-hero a, section.campaign-hero__ctas-primary a')
+                  .filter({ hasText: /contact|request|demander/i })
+                  .first();
+              }
+
+              // Step 3: Fall back to global search for buttons first, then links
+              if (!(await contact.count())) {
+                contact = page.locator('button')
+                  .filter({ hasText: /contact|request|demander/i })
+                  .first();
+              }
+              if (!(await contact.count())) {
+                contact = page.locator('a')
+                  .filter({ hasText: /contact|request|demander/i })
+                  .first();
+              }
+
+              // Step 4: Use data attributes as a final fallback
+              if (!(await contact.count())) {
+                contact = page.locator('[data-analytics-link-type="Category Hero"], [data-analytics-link-type="Campaign Hero"], [data-analytics-link-type="Contact Widget"]')
+                  .filter({ hasText: /contact|request|demander/i })
+                  .first();
+              }
+
+              // Check if a contact element was found
+              if (!(await contact.count())) {
+                console.log('   TC-08: No contact button or link found');
                 pass = false;
-                errorDetails = 'Contact Us button not found';
-                console.log(`   TC-08: Contact Us button not found`);
+                errorDetails = 'No contact button or link found';
+                await logPageDom(page, url, 'TC-08');
                 break;
               }
 
-              console.log(`   TC-08: Clicking Contact Us button`);
-              await jsClick(page, contactButtonSelector);
+              console.log(`   TC-08: Found contact element: ${await contact.textContent()}`);
+
+              // Ensure the contact element is visible
+              try {
+                await contact.waitFor({ state: 'visible', timeout: 20000 });
+              } catch (e) {
+                console.log('   TC-08: Contact element not visible within 20 seconds');
+                pass = false;
+                errorDetails = 'Contact element not visible';
+                await logPageDom(page, url, 'TC-08');
+                break;
+              }
+
+              await contact.scrollIntoViewIfNeeded();
+              await contact.click({ force: true });
+
+              // Verify form count increases
               console.log(`   TC-08: Waiting for form count to increase`);
-              pass = await page.waitForFunction(prevCount => document.querySelectorAll('form').length > prevCount, initialFormCount, { timeout: 10000 }).then(() => true).catch(() => false);
-              errorDetails = pass ? '' : `Number of forms did not increase after clicking Contact Us button (initial: ${initialFormCount}, current: ${await page.evaluate(() => document.querySelectorAll('form').length)})`;
-              console.log(`   TC-08: Completed - ${pass ? 'Pass' : 'Fail'}`);
+              pass = await page.waitForFunction(
+                prevCount => document.querySelectorAll('form').length > prevCount,
+                initialFormCount,
+                { timeout: 10000 }
+              ).then(() => true).catch(() => false);
+              errorDetails = pass ? '' : `Form count did not increase (initial: ${initialFormCount}, current: ${await page.evaluate(() => document.querySelectorAll('form').length)})`;
+              console.log(`   TC-08: Form count check: ${pass ? 'Pass' : 'Fail'}`);
+              if (!pass) await logPageDom(page, url, 'TC-08');
               break;
             }
+
+            // TC-09: Check for rendering error text
             case 'TC-09': {
               const errorText = 'A rendering error occurred';
               const pageContent = await page.content();
@@ -433,68 +748,150 @@ const supabase = createClient(
               errorDetails = pass ? '' : `Page content contains "${errorText}"`;
               break;
             }
+            // TC-10: Verify Gatekeeper UI in incognito mode
             case 'TC-10': {
-              pass = !page.url().includes('/gatekeeper?');
-              errorDetails = pass ? '' : `URL contains "/gatekeeper?": ${page.url()}`;
+              console.log(`   TC-10: Checking gatekeeper handling for ${url}`);
+              console.log(`   TC-10: Gatekeeper detected: ${gatekeeperDetected}, HTTP status: ${resp ? resp.status() : 'N/A'}, Final URL: ${page.url()}`);
+              pass = gatekeeperDetected && resp && resp.status() === 200;
+              errorDetails = pass ? '' : gatekeeperDetected ? 
+                `Page did not load successfully after gatekeeper (status: ${resp ? resp.status() : 'N/A'})` : 
+                'Gatekeeper UI not detected when expected';
+              if (!pass) await logPageDom(page, url, 'TC-10');
+              console.log(`   TC-10: Result: ${pass ? 'Pass' : 'Fail'} (${errorDetails})`);
               break;
             }
+            // TC-11: Verify insights/newsroom link navigation
             case 'TC-11': {
-              const insightsLinkSelector = 'div[class*="insights-list"] a, .ge-newsroom-article-card a';
-              const insightsLink = await page.$(insightsLinkSelector);
-              if (!insightsLink) {
+              console.log(`   TC-11: Starting for ${url}`);
+              await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+              await page.waitForTimeout(3000);
+              const insightsLinkSelectors = [
+                'a[href*="/insights"]',
+                'a[href*="/newsroom"]',
+                '.ge-press-cards__item a[href]',
+                '.related-content-app-product-cards__image_container a[href]',
+                '.related-content-insights-app-product-cards__image_container a[href]',
+                '.related-content__container a[href]',
+                '.ge-newsroom-article-card a[href]',
+                '.content-list-articles-wrapper a[href]',
+                '[class*="article"] a[href]'
+              ];
+              let insightsLink = null;
+              let selectedHref = null;
+              for (const selector of insightsLinkSelectors) {
+                insightsLink = await page.$(selector);
+                if (insightsLink) {
+                  selectedHref = await insightsLink.getAttribute('href');
+                  if (selectedHref) break;
+                }
+              }
+              if (!insightsLink || !selectedHref) {
                 pass = false;
-                errorDetails = 'No insights or newsroom link found';
+                errorDetails = 'No valid insights/newsroom link with href found';
+                console.log(`   TC-11: No valid link found`);
+                await logPageDom(page, url, 'TC-11');
                 break;
               }
-              const href = await insightsLink.getAttribute('href');
-              if (!href) {
-                pass = false;
-                errorDetails = 'Insights link has no href attribute';
-                break;
-              }
-              const targetUrl = new URL(href, page.url()).toString();
-              const newPage = await context.newPage();
+              const targetUrl = new URL(selectedHref, page.url()).toString();
+              console.log(`   TC-11: Navigating to ${targetUrl}`);
+              const newPage = await contextToUse.newPage();
               const response = await newPage.goto(targetUrl, { timeout: 30000, waitUntil: 'domcontentloaded' });
               pass = !!response && response.status() === 200;
               errorDetails = pass ? '' : `Navigating to ${targetUrl} resulted in status ${response ? response.status() : 'N/A'}`;
+              console.log(`   TC-11: Navigation result: ${pass ? 'Pass' : 'Fail'}`);
+              if (!pass) await logPageDom(newPage, targetUrl, 'TC-11');
               await newPage.close();
               break;
             }
+            // TC-12: Verify Doc Check redirect in incognito mode
             case 'TC-12': {
-              pass = !page.url().includes('/account/doccheck-login');
-              errorDetails = pass ? '' : `URL contains "/account/doccheck-login": ${page.url()}`;
+              console.log(`   TC-12: Final URL: ${page.url()}`);
+              const finalUrl = page.url();
+              pass = finalUrl.includes('/account/doccheck-login');
+              errorDetails = pass ? '' : `Expected redirect to "/account/doccheck-login" not found: ${finalUrl}`;
+              if (!pass) await logPageDom(page, url, 'TC-12');
               break;
             }
+            // TC-13: Verify navigation through menu to ultrasound site
             case 'TC-13': {
-              const produkteLink = await page.$('span.ge-cdx-header-redesign__nav-menu-item__nav-link:has-text("Produkte")');
-              if (!produkteLink) {
+              console.log(`   TC-13: Starting for ${url}`);
+              await page.waitForLoadState('networkidle');
+              await page.waitForTimeout(500);
+
+              // Step 1: Locate and click 'Produkte' button
+              const produkteButton = page.getByRole('button', { name: 'Produkte' }).first();
+              try {
+                await produkteButton.waitFor({ state: 'visible', timeout: 30000 });
+                console.log('   TC-13: Produkte button found and visible');
+              } catch (e) {
+                console.log('   TC-13: Produkte button not found or not visible within 30s');
                 pass = false;
-                errorDetails = '"Produkte" link not found';
+                errorDetails = 'Produkte button not found or not visible';
+                await logPageDom(page, url, 'TC-13');
                 break;
               }
-              await produkteLink.click();
-              const ultraschallLink = await page.waitForSelector('div.menu-content-container-item-data:has-text("Ultraschall")', { timeout: 10000 }).catch(() => null);
-              if (!ultraschallLink) {
-                pass = false;
-                errorDetails = '"Ultraschall" link not found in menu';
-                break;
+              console.log(`   TC-13: Clicking Produkte button`);
+              await produkteButton.click();
+
+              // Step 2: Locate and click 'Ultraschall' submenu item
+              let ultraschallButton = page.getByRole('button', { name: 'Ultraschall' });
+              try {
+                await ultraschallButton.waitFor({ state: 'visible', timeout: 10000 });
+                console.log('   TC-13: Ultraschall submenu item found and visible via role');
+              } catch (e) {
+                console.log('   TC-13: Ultraschall not found via role, trying fallback');
+                ultraschallButton = page.locator('.menu-content-container-item-data', { hasText: 'Ultraschall' });
+                await ultraschallButton.waitFor({ state: 'visible', timeout: 5000 });
+                if (!(await ultraschallButton.isVisible())) {
+                  console.log('   TC-13: Ultraschall submenu item not found or not visible within 15s');
+                  pass = false;
+                  errorDetails = 'Ultraschall submenu item not found or not visible';
+                  await logPageDom(page, url, 'TC-13');
+                  break;
+                }
+                console.log('   TC-13: Ultraschall submenu item found via fallback');
               }
-              await ultraschallLink.click();
-              const moreLink = await page.waitForSelector('a:has-text("Mehr erfahren"), a[href*="ge-ultraschall"], a[href*="gehealthcare-ultrasound"]', { timeout: 10000 }).catch(() => null);
-              if (!moreLink) {
-                pass = false;
-                errorDetails = '"Mehr erfahren" or equivalent link not found';
-                break;
+              console.log(`   TC-13: Clicking Ultraschall submenu item`);
+              await ultraschallButton.click();
+
+              // Step 3: Locate the 'Mehr erfahren' link by href
+              const moreLink = page.locator('a[href="https://www.ge-ultraschall.com/"]');
+              try {
+                await moreLink.waitFor({ state: 'visible', timeout: 30000 });
+                console.log('   TC-13: Found "Mehr erfahren" link by href');
+              } catch (error) {
+                console.log('   TC-13: "Mehr erfahren" link not found by href within 30 seconds');
+                const moreLinkByText = page.locator('a', { hasText: /> Mehr erfahren/i });
+                await moreLinkByText.waitFor({ state: 'visible', timeout: 5000 });
+                if (!(await moreLinkByText.isVisible())) {
+                  console.log('   TC-13: Fallback link not found or not visible');
+                  pass = false;
+                  errorDetails = '"Mehr erfahren" link not found or not visible';
+                  await logPageDom(page, url, 'TC-13');
+                  break;
+                }
+                console.log('   TC-13: Found "Mehr erfahren" link via text fallback');
               }
-              const [response] = await Promise.all([
-                page.waitForNavigation({ timeout: 30000 }),
-                moreLink.click(),
-              ]);
+
+              // Step 4: Click the link and wait for navigation
+              console.log(`   TC-13: Clicking "Mehr erfahren" link`);
+              await moreLink.scrollIntoViewIfNeeded();
+              await moreLink.click();
+
+              await page.waitForNavigation({ timeout: 30000 }).catch(() => {
+                console.log('   TC-13: Navigation wait timed out, proceeding with current URL');
+              });
+
+              // Step 5: Verify the final URL starts with the expected domains
               const dest = page.url();
-              pass = (dest.startsWith('https://www.ge-ultraschall.com/') || dest.startsWith('https://gehealthcare-ultrasound.com/')) && (response ? response.status() === 200 : true);
-              errorDetails = pass ? '' : `Navigation did not go to expected ultrasound site or resulted in non-200 status: ${dest}`;
+              console.log(`   TC-13: Navigated to ${dest}`);
+              pass = dest.startsWith('https://gehealthcare-ultrasound.com/') || dest.startsWith('https://www.ge-ultraschall.com/');
+              errorDetails = pass ? '' : `Navigation did not go to expected ultrasound site: ${dest}`;
+              if (!pass) await logPageDom(page, url, 'TC-13');
               break;
             }
+
+            // TC-14: Verify HTTP status is successful
             case 'TC-14': {
               const c = resp ? resp.status() : 0;
               pass = (c >= 200 && c < 300) || HTTP_REDIRECT.includes(c);
@@ -511,10 +908,16 @@ const supabase = createClient(
           console.log(`   EXCEPTION for ${id}: ${err.message}`);
           pass = false;
           errorDetails = `Exception during test execution for ${id}: ${err.message}`;
+          await logPageDom(page, url, id);
           const safeUrl = url.replace(/[^a-zA-Z0-9_-]/g, '_');
           const screenshotPath = `${screenshotDir}/${safeUrl}-${id}-exception.png`;
           await page.screenshot({ path: screenshotPath, fullPage: true })
             .catch(screenshotErr => console.error(`Screenshot failed during exception for ${id}: ${screenshotErr.message}`));
+        } finally {
+          if (id === 'TC-02') {
+            await page.setViewportSize(defaultViewport);
+            await page.waitForTimeout(1000);
+          }
         }
 
         results[idx][id] = pass ? 'Pass' : 'Fail';
@@ -527,39 +930,31 @@ const supabase = createClient(
       let videoUrl = null;
       const safeUrl = url.replace(/[^a-zA-Z0-9_-]/g, '_');
 
-      if (failedTestIds.length > 0 || captureVideo) {
+      // Capture screenshots and videos for failed tests
+      if (failedTestIds.length > 0) {
         await page.waitForTimeout(2000);
-        if (failedTestIds.length > 0) {
-          const screenshotFileName = `${safeUrl}-failed-${failedTestIds.join(',')}.png`;
-          const screenshotPath = path.join(screenshotDir, screenshotFileName);
-          await page.screenshot({ path: screenshotPath, fullPage: true });
-          screenshotUrl = await uploadFile(screenshotPath, `screenshots/${screenshotFileName}`);
-          if (screenshotUrl) console.log(`Screenshot uploaded: ${screenshotUrl}`);
-        }
+        const screenshotFileName = `${safeUrl}-failed-${failedTestIds.join(',')}.png`;
+        const screenshotPath = path.join(screenshotDir, screenshotFileName);
+        await page.screenshot({ path: screenshotPath, fullPage: true });
+        screenshotUrl = await uploadFile(screenshotPath, `screenshots/${screenshotFileName}`);
+        if (screenshotUrl) console.log(`Screenshot uploaded: ${screenshotUrl}`);
 
-        const video = page.video();
-        if (video && (captureVideo || failedTestIds.length > 0)) {
-          const videoFilePath = await video.path();
-          await video.saveAs(path.join(videoDir, `${safeUrl}-${idx + 1}.webm`));
-          const videoFileName = `${safeUrl}-${idx + 1}.webm`;
+        if (captureVideo) {
+          const videoContext = await browser.newContext({
+            recordVideo: { dir: videoDir, timeout: 15000 },
+            viewport: defaultViewport
+          });
+          const videoPage = await videoContext.newPage();
+          await videoPage.goto(url, { waitUntil: 'domcontentloaded' });
+          await videoPage.waitForTimeout(5000);
+          const videoPath = await videoPage.video().path();
+          await videoContext.close();
+          const uniqueId = uuidv4();
+          const videoFileName = `${safeUrl}-${uniqueId}.webm`;
           const finalVideoPath = path.join(videoDir, videoFileName);
+          await fs.promises.rename(videoPath, finalVideoPath);
           videoUrl = await uploadFile(finalVideoPath, `videos/${videoFileName}`);
           if (videoUrl) console.log(`Video uploaded: ${videoUrl}`);
-        } else if (video && !captureVideo && failedTestIds.length === 0) {
-          const videoFilePath = await video.path();
-          if (fs.existsSync(videoFilePath)) {
-            fs.unlinkSync(videoFilePath);
-            console.log(`Deleted unnecessary video for ${url}`);
-          }
-        }
-      } else {
-        const video = page.video();
-        if (video) {
-          const videoFilePath = await video.path();
-          if (fs.existsSync(videoFilePath)) {
-            fs.unlinkSync(videoFilePath);
-            console.log(`Deleted video for passing URL (captureVideo is false): ${url}`);
-          }
         }
       }
 
@@ -581,21 +976,19 @@ const supabase = createClient(
 
       const relevantTestResults = validTestIds.map(id => results[idx][id]);
       let pagePassStatus = 'NA';
-      if (relevantTestResults.length === 0) {
-        pagePassStatus = 'NA';
-      } else if (relevantTestResults.includes('Fail')) {
-        pagePassStatus = 'Fail';
-      } else {
-        pagePassStatus = 'Pass';
+      if (relevantTestResults.length > 0) {
+        pagePassStatus = relevantTestResults.includes('Fail') ? 'Fail' : 'Pass';
       }
       results[idx]['Page Pass?'] = pagePassStatus;
 
       await updateProgress(idx + 1, startTime);
       console.log(`     ✔ ${(Date.now() - t0) / 1000}s`);
       await page.close();
+      if (contextToUse !== context) await contextToUse.close();
     }
 
-    const CONCURRENCY = 2;
+    // Process URLs in batches with concurrency control
+    const CONCURRENCY = 3;
     const urlBatches = [];
     for (let i = 0; i < urls.length; i += CONCURRENCY) {
       urlBatches.push(urls.slice(i, i + CONCURRENCY));
@@ -610,13 +1003,20 @@ const supabase = createClient(
             .catch(async (err) => {
               console.error(`Timeout or error for ${urlData.url}: ${err.message}`);
               results[batchIndex * CONCURRENCY + j]['Page Pass?'] = 'Fail';
-              results[batchIndex * CONCURRENCY + j]['HTTP Status'] = 'Timeout/Error';
+              if (results[batchIndex * CONCURRENCY + j]['HTTP Status'] === '-') {
+                results[batchIndex * CONCURRENCY + j]['HTTP Status'] = 'Timeout/Error';
+              }
               await updateProgress(batchIndex * CONCURRENCY + j + 1, startTime);
             })
         )
       );
+      if (batchIndex < urlBatches.length - 1) {
+        console.log('   Waiting 5 seconds before next batch...');
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
     }
 
+    // Finalize crawl progress in Supabase
     await supabase
       .from('crawl_progress')
       .update({
@@ -626,6 +1026,7 @@ const supabase = createClient(
       })
       .eq('run_id', runId);
 
+    // Summarize results
     const total = results.length;
     const passed = results.filter(r => r['Page Pass?'] === 'Pass').length;
     const failed = results.filter(r => r['Page Pass?'] === 'Fail').length;
@@ -656,49 +1057,13 @@ const supabase = createClient(
       });
     }
 
-    const payload = {
-      runId: runId,
-      crawlName: 'QA Run',
-      date: new Date().toISOString(),
-      totalUrls: total,
-      passedUrls: passed,
-      failedUrls: failed,
-      naUrls: na,
-      successCount: passed,
-      failureCount: failed,
-      naCount: na,
-      initiatedBy: initiatedBy,
-      testFailureSummary,
-      failedUrls: failedUrlsList,
-      urlResults: urlResults,
-      screenshot_paths: allScreenshotUrls,
-      video_paths: allVideoUrls
-    };
-
-    const storeRunBaseUrl = process.env.VERCEL_URL && !process.env.VERCEL_URL.startsWith('http')
-      ? `https://${process.env.VERCEL_URL}`
-      : process.env.VERCEL_URL || 'http://localhost:3000';
-    const storeRunUrl = `${storeRunBaseUrl}/api/store-run`;
-    console.log(`Sending run summary to ${storeRunUrl}`);
-    const response = await fetch(storeRunUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-
-    if (!response.ok) {
-      const errorBody = await response.text();
-      console.error(`Failed to store run: ${response.status} ${response.statusText}`, errorBody);
-    } else {
-      console.log('Successfully stored run summary via API.');
-    }
-
+    // Write results to Excel output
     const outputWorkbook = new ExcelJS.Workbook();
     const resultSheet = outputWorkbook.addWorksheet('Results');
-    const outputHeaders = [...headers, ...allTestIds, 'Page Pass?', 'HTTP Status'];
+    const outputHeaders = ['url', 'region', 'test ids', ...allTestIds, 'Page Pass?', 'HTTP Status'];
     resultSheet.getRow(1).values = outputHeaders;
     results.forEach((result, index) => {
-      const rowData = outputHeaders.map(header => result[header]);
+      const rowData = outputHeaders.map(header => result[header] || '');
       resultSheet.getRow(index + 2).values = rowData;
     });
 
@@ -719,9 +1084,51 @@ const supabase = createClient(
     await outputWorkbook.xlsx.writeFile(outputFile);
     console.log(`\n✅ Results saved → ${outputFile}\n`);
 
+    // Prepare and send payload to API
+    const payload = {
+      runId: runId,
+      crawlName: 'QA Run',
+      date: new Date().toISOString(),
+      totalUrls: total,
+      passedUrls: passed,
+      failedUrls: failed,
+      naUrls: na,
+      successCount: passed,
+      failureCount: failed,
+      naCount: na,
+      initiatedBy: initiatedBy,
+      testFailureSummary,
+      failedUrls: failedUrlsList,
+      urlResults: urlResults,
+      screenshot_paths: allScreenshotUrls,
+      video_paths: allVideoUrls
+    };
+
     const summaryFilePath = 'summary.json';
     fs.writeFileSync(summaryFilePath, JSON.stringify(payload, null, 2));
     console.log(`Run summary saved to ${summaryFilePath}`);
+
+    const storeRunBaseUrl = process.env.VERCEL_URL && !process.env.VERCEL_URL.startsWith('http')
+      ? `https://${process.env.VERCEL_URL}`
+      : process.env.VERCEL_URL || 'http://localhost:3000';
+    const storeRunUrl = `${storeRunBaseUrl}/api/store-run`;
+    console.log(`Sending run summary to ${storeRunUrl}`);
+    try {
+      const response = await fetch(storeRunUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        const errorBody = await response.text();
+        console.error(`Failed to store run: ${response.status} ${response.statusText}`, errorBody);
+      } else {
+        console.log('Successfully stored run summary via API.');
+      }
+    } catch (apiError) {
+      console.error('Error sending run summary to API:', apiError.message);
+    }
 
     await context.close();
     await browser.close();

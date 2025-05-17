@@ -12,3 +12,6 @@ repomix
 .env.development.local
 venv/
 .venv/
+videos/
+debug_logs/
+output
