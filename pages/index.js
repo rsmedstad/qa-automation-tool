@@ -4,6 +4,112 @@ import ChartDataLabels from 'chartjs-plugin-datalabels';
 import { Bar } from 'react-chartjs-2';
 import Head from 'next/head';
 
+const FailingTestsChart = React.memo(({ failedTests, isDarkMode, activeIssuesTab, setActiveIssuesTab }) => {
+  const hasFails = failedTests && Object.keys(failedTests).length > 0;
+
+  const data = useMemo(() => {
+    if (!hasFails) return null;
+    return {
+      labels: Object.keys(failedTests),
+      datasets: [
+        {
+          label: 'Number of Fails',
+          data: Object.values(failedTests),
+          backgroundColor: 'rgba(255, 99, 132, 0.6)',
+          borderColor: 'rgba(255, 99, 132, 1)',
+          borderWidth: 1,
+        },
+      ],
+    };
+  }, [failedTests]);
+
+  const options = useMemo(() => ({
+    indexAxis: 'y',
+    scales: {
+      x: {
+        beginAtZero: true,
+        ticks: { stepSize: 1, color: isDarkMode ? 'rgba(229, 231, 235, 0.7)' : 'rgba(75, 85, 99, 0.7)' },
+        grid: { color: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)' },
+        title: { display: true, text: 'Number of Fails', color: isDarkMode ? '#E5E7EB' : '#374151', font: { size: 14, weight: 'bold' } },
+      },
+      y: {
+        ticks: { color: isDarkMode ? 'rgba(229, 231, 235, 0.7)' : 'rgba(75, 85, 99, 0.7)' },
+        grid: { color: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)' },
+      },
+    },
+    plugins: {
+      legend: { display: false },
+      datalabels: { display: true, color: isDarkMode ? '#FFFFFF' : '#000000', anchor: 'end', align: 'right', font: { weight: 'bold' }, formatter: (value) => (value > 0 ? value : '') },
+      tooltip: {
+        backgroundColor: isDarkMode ? 'rgba(40,40,40,0.9)' : 'rgba(245,245,245,0.9)',
+        titleColor: isDarkMode ? '#E5E7EB' : '#374151',
+        bodyColor: isDarkMode ? '#E5E7EB' : '#374151',
+        borderColor: isDarkMode ? '#555' : '#ccc',
+        borderWidth: 1,
+      },
+    },
+    responsive: true,
+    maintainAspectRatio: false,
+  }), [isDarkMode]);
+
+  const downloadCSV = (headers, data, filename) => {
+    const csv = [
+      headers.join(','),
+      ...data.map(row => headers.map(header => `"${row[header] || ''}"`).join(',')),
+    ].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div className="p-4 bg-white dark:bg-gray-800 rounded-xl shadow-lg">
+      <div className="flex justify-between items-center py-2 border-b border-gray-200 dark:border-gray-700">
+        <h2 className="text-xl font-semibold text-gray-700 dark:text-gray-300">Crawl Issues</h2>
+        <button
+          onClick={() => {
+            const headers = ['Test ID', 'Number of Fails'];
+            const data = hasFails
+              ? Object.entries(failedTests).map(([testId, count]) => ({ 'Test ID': testId, 'Number of Fails': count }))
+              : [];
+            downloadCSV(headers, data, activeIssuesTab === 'last' ? 'last_crawl_issues.csv' : 'trended_crawl_issues.csv');
+          }}
+          className="text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="currentColor">
+            <path d="M480-320 280-520l56-58 104 104v-326h80v326l104-104 56 58-200 200ZM240-160q-33 0-56.5-23.5T160-240v-120h80v120h480v-120h80v120q0 33-23.5 56.5T720-160H240Z"/>
+          </svg>
+        </button>
+      </div>
+      <div className="flex space-x-4 my-4">
+        <button
+          onClick={() => setActiveIssuesTab('last')}
+          className={`px-4 py-2 rounded-lg ${activeIssuesTab === 'last' ? 'bg-indigo-600 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'}`}
+        >
+          Last Crawl
+        </button>
+        <button
+          onClick={() => setActiveIssuesTab('trended')}
+          className={`px-4 py-2 rounded-lg ${activeIssuesTab === 'trended' ? 'bg-indigo-600 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'}`}
+        >
+          Trended (Last 30)
+        </button>
+      </div>
+      {hasFails ? (
+        <div style={{ height: '300px' }}>
+          <Bar data={data} options={options} />
+        </div>
+      ) : (
+        <p className="text-gray-500 dark:text-gray-400 text-center py-4">No fails observed in the most recent crawl.</p>
+      )}
+    </div>
+  );
+});
+
 export default function Dashboard() {
   const [runs, setRuns] = useState([]);
   const [question, setQuestion] = useState('');
@@ -138,16 +244,23 @@ export default function Dashboard() {
         const legendColor = isDarkMode ? '#E5E7EB' : '#374151';
         const datalabelColor = isDarkMode ? '#FFFFFF' : '#000000';
 
+        const datasets = [
+          { label: '# Passed', data: passedData, backgroundColor: 'rgba(75, 192, 75, 0.6)', borderColor: 'rgba(75, 192, 75, 1)', borderWidth: 1 },
+          { label: '# Failed', data: failedData, backgroundColor: 'rgba(255, 99, 132, 0.6)', borderColor: 'rgba(255, 99, 132, 1)', borderWidth: 1 },
+        ];
+        if (naData.some(count => count > 0)) {
+          datasets.push({
+            label: '# N/A',
+            data: naData,
+            backgroundColor: 'rgba(255, 206, 86, 0.6)',
+            borderColor: 'rgba(255, 206, 86, 1)',
+            borderWidth: 1,
+          });
+        }
+
         chartRef.current.chart = new Chart(ctx, {
           type: 'bar',
-          data: {
-            labels: labels,
-            datasets: [
-              { label: '# Passed', data: passedData, backgroundColor: 'rgba(75, 192, 75, 0.6)', borderColor: 'rgba(75, 192, 75, 1)', borderWidth: 1 },
-              { label: '# Failed', data: failedData, backgroundColor: 'rgba(255, 99, 132, 0.6)', borderColor: 'rgba(255, 99, 132, 1)', borderWidth: 1 },
-              { label: '# N/A', data: naData, backgroundColor: 'rgba(255, 206, 86, 0.6)', borderColor: 'rgba(255, 206, 86, 1)', borderWidth: 1 },
-            ],
-          },
+          data: { labels, datasets },
           options: {
             scales: {
               x: {
@@ -173,7 +286,7 @@ export default function Dashboard() {
               tooltip: {
                 backgroundColor: isDarkMode ? 'rgba(40,40,40,0.9)' : 'rgba(245,245,245,0.9)',
                 titleColor: isDarkMode ? '#E5E7EB' : '#374151',
-                bbodyColor: isDarkMode ? '#E5E7EB' : '#374151',
+                bodyColor: isDarkMode ? '#E5E7EB' : '#374151',
                 borderColor: isDarkMode ? '#555' : '#ccc',
                 borderWidth: 1,
               },
@@ -219,7 +332,7 @@ export default function Dashboard() {
               legend: { position: 'right', labels: { color: legendColor, boxWidth: 15, padding: 15 } },
               datalabels: { display: true, color: datalabelColor, font: { size: 16, weight: 'bold' }, formatter: (value) => (value > 0 ? value : '') },
               tooltip: {
-                backgroundColor: isDarkMode ? 'rgba(40,40,40,0.9)' : 'rgba(245,245,245,0.9)',
+                backgroundColor: isDarkMode ? 'rgba(40,40,40,0.9)' : ' Rgba(245,245,245,0.9)',
                 titleColor: isDarkMode ? '#E5E7EB' : '#374151',
                 bodyColor: isDarkMode ? '#E5E7EB' : '#374151',
                 borderColor: isDarkMode ? '#555' : '#ccc',
@@ -241,81 +354,6 @@ export default function Dashboard() {
       }
     };
   }, [runs, isDarkMode]);
-
-  const FailingTestsChart = React.memo(({ failedTests }) => {
-    const hasFails = failedTests && Object.keys(failedTests).length > 0;
-
-    const data = hasFails ? {
-      labels: Object.keys(failedTests),
-      datasets: [
-        {
-          label: 'Number of Fails',
-          data: Object.values(failedTests),
-          backgroundColor: 'rgba(255, 99, 132, 0.6)',
-          borderColor: 'rgba(255, 99, 132, 1)',
-          borderWidth: 1,
-        },
-      ],
-    } : null;
-
-    const options = {
-      indexAxis: 'y',
-      scales: {
-        x: {
-          beginAtZero: true,
-          ticks: { stepSize: 1, color: isDarkMode ? 'rgba(229, 231, 235, 0.7)' : 'rgba(75, 85, 99, 0.7)' },
-          grid: { color: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)' },
-          title: { display: true, text: 'Number of Fails', color: isDarkMode ? '#E5E7EB' : '#374151', font: { size: 14, weight: 'bold' } },
-        },
-        y: {
-          ticks: { color: isDarkMode ? 'rgba(229, 231, 235, 0.7)' : 'rgba(75, 85, 99, 0.7)' },
-          grid: { color: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)' },
-        },
-      },
-      plugins: {
-        legend: { display: false },
-        datalabels: { display: true, color: isDarkMode ? '#FFFFFF' : '#000000', anchor: 'end', align: 'right', font: { weight: 'bold' }, formatter: (value) => (value > 0 ? value : '') },
-        tooltip: {
-          backgroundColor: isDarkMode ? 'rgba(40,40,40,0.9)' : 'rgba(245,245,245,0.9)',
-          titleColor: isDarkMode ? '#E5E7EB' : '#374151',
-          bodyColor: isDarkMode ? '#E5E7EB' : '#374151',
-          borderColor: isDarkMode ? '#555' : '#ccc',
-          borderWidth: 1,
-        },
-      },
-      responsive: true,
-      maintainAspectRatio: false,
-    };
-
-    return (
-      <div className="p-4 bg-white dark:bg-gray-800 rounded-xl shadow-lg">
-        <div className="py-2 border-b border-gray-200 dark:border-gray-700">
-          <h2 className="text-xl font-semibold text-gray-700 dark:text-gray-300">Crawl Issues</h2>
-        </div>
-        <div className="flex space-x-4 my-4">
-          <button
-            onClick={() => setActiveIssuesTab('last')}
-            className={`px-4 py-2 rounded-lg ${activeIssuesTab === 'last' ? 'bg-indigo-600 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'}`}
-          >
-            Last Crawl
-          </button>
-          <button
-            onClick={() => setActiveIssuesTab('trended')}
-            className={`px-4 py-2 rounded-lg ${activeIssuesTab === 'trended' ? 'bg-indigo-600 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'}`}
-          >
-            Trended (Last 30)
-          </button>
-        </div>
-        {hasFails ? (
-          <div style={{ height: '300px' }}>
-            <Bar data={data} options={options} />
-          </div>
-        ) : (
-          <p className="text-gray-500 dark:text-gray-400 text-center py-4">No fails observed in the most recent crawl.</p>
-        )}
-      </div>
-    );
-  });
 
   const handleAskSubmit = async () => {
     if (!isGeminiEnabled || !question.trim()) return;
@@ -521,6 +559,20 @@ export default function Dashboard() {
     }
   };
 
+  const downloadCSV = (headers, data, filename) => {
+    const csv = [
+      headers.join(','),
+      ...data.map(row => headers.map(header => `"${row[header] || ''}"`).join(',')),
+    ].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <>
       <Head>
@@ -562,13 +614,52 @@ export default function Dashboard() {
           <div className="space-y-6">
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
               <div className="lg:col-span-2 p-4 bg-white dark:bg-gray-800 rounded-xl shadow-lg overflow-hidden">
-                <h2 className="text-xl font-semibold mb-3 text-gray-700 dark:text-gray-300">Crawls Trended</h2>
+                <div className="flex justify-between items-center mb-3">
+                  <h2 className="text-xl font-semibold text-gray-700 dark:text-gray-300">Crawls Trended</h2>
+                  <button
+                    onClick={() => {
+                      const recentRuns = [...runs].sort((a, b) => new Date(a.date) - new Date(b.date)).slice(-24);
+                      const headers = ['Date & Time', 'Passed', 'Failed', 'N/A'];
+                      const data = recentRuns.map(run => ({
+                        'Date & Time': new Date(run.date).toLocaleString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'America/Chicago' }),
+                        'Passed': run.successCount || 0,
+                        'Failed': run.failureCount || 0,
+                        'N/A': run.naCount || 0,
+                      }));
+                      downloadCSV(headers, data, 'crawls_trended.csv');
+                    }}
+                    className="text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="currentColor">
+                      <path d="M480-320 280-520l56-58 104 104v-326h80v326l104-104 56 58-200 200ZM240-160q-33 0-56.5-23.5T160-240v-120h80v120h480v-120h80v120q0 33-23.5 56.5T720-160H240Z"/>
+                    </svg>
+                  </button>
+                </div>
                 <div style={{ height: '400px', width: '100%' }}>
                   <canvas ref={chartRef}></canvas>
                 </div>
               </div>
               <div className="lg:col-span-1 p-4 bg-white dark:bg-gray-800 rounded-xl shadow-lg flex flex-col justify-center items-center">
-                <h2 className="text-xl font-semibold mb-3 text-gray-700 dark:text-gray-300">Crawl Types</h2>
+                <div className="flex justify-between items-center mb-3 w-full">
+                  <h2 className="text-xl font-semibold text-gray-700 dark:text-gray-300">Crawl Types</h2>
+                  <button
+                    onClick={() => {
+                      const scheduledCount = runs.filter((run) => run.event === 'schedule').length;
+                      const adHocCount = runs.filter((run) => run.event === 'workflow_dispatch').length;
+                      const headers = ['Type', 'Count'];
+                      const data = [
+                        { Type: 'Scheduled', Count: scheduledCount },
+                        { Type: 'Ad-Hoc', Count: adHocCount },
+                      ];
+                      downloadCSV(headers, data, 'crawl_types.csv');
+                    }}
+                    className="text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="currentColor">
+                      <path d="M480-320 280-520l56-58 104 104v-326h80v326l104-104 56 58-200 200ZM240-160q-33 0-56.5-23.5T160-240v-120h80v120h480v-120h80v120q0 33-23.5 56.5T720-160H240Z"/>
+                    </svg>
+                  </button>
+                </div>
                 <div style={{ height: '380px', width: '100%', maxWidth: '380px' }}>
                   <canvas ref={donutChartRef}></canvas>
                 </div>
@@ -577,20 +668,46 @@ export default function Dashboard() {
 
             <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 mb-6 items-start">
               <div className="lg:col-span-1">
-                <FailingTestsChart failedTests={activeIssuesTab === 'last' ? sortedRuns[0]?.failed_tests : trendedFailedTests} />
+                <FailingTestsChart
+                  failedTests={activeIssuesTab === 'last' ? sortedRuns[0]?.failed_tests : trendedFailedTests}
+                  isDarkMode={isDarkMode}
+                  activeIssuesTab={activeIssuesTab}
+                  setActiveIssuesTab={setActiveIssuesTab}
+                />
               </div>
               <div className="lg:col-span-3 p-4 bg-white dark:bg-gray-800 rounded-xl shadow-lg">
                 <div className="sticky top-0 bg-white dark:bg-gray-800 z-20 py-2 border-b border-gray-200 dark:border-gray-700">
                   <div className="flex justify-between items-center">
                     <h2 className="text-xl font-semibold text-gray-700 dark:text-gray-300">Recent Crawl Information</h2>
-                    {runs.length > 5 && (
+                    <div className="flex items-center space-x-4">
+                      {runs.length > 5 && (
+                        <button
+                          onClick={() => setShowAll(!showAll)}
+                          className="text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 font-medium transition-colors text-sm"
+                        >
+                          {showAll ? `Collapse (${runs.length})` : `Expand (${runs.length})`}
+                        </button>
+                      )}
                       <button
-                        onClick={() => setShowAll(!showAll)}
-                        className="text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 font-medium transition-colors text-sm"
+                        onClick={() => {
+                          const headers = ['Crawl Name', 'Date & Time', 'Initiator', 'Passed', 'Failed', 'Output Artifacts'];
+                          const data = displayedRuns.map(run => ({
+                            'Crawl Name': run.crawlName || 'N/A',
+                            'Date & Time': new Date(run.date).toLocaleString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'America/Chicago' }),
+                            'Initiator': run.initiator || 'N/A',
+                            'Passed': run.successCount || 0,
+                            'Failed': run.failureCount || 0,
+                            'Output Artifacts': run.hasArtifacts ? 'Yes' : 'No',
+                          }));
+                          downloadCSV(headers, data, 'recent_crawls.csv');
+                        }}
+                        className="text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100"
                       >
-                        {showAll ? `Collapse (${runs.length})` : `Expand (${runs.length})`}
+                        <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="currentColor">
+                          <path d="M480-320 280-520l56-58 104 104v-326h80v326l104-104 56 58-200 200ZM240-160q-33 0-56.5-23.5T160-240v-120h80v120h480v-120h80v120q0 33-23.5 56.5T720-160H240Z"/>
+                        </svg>
                       </button>
-                    )}
+                    </div>
                   </div>
                 </div>
                 <div className="max-h-[26rem] overflow-y-auto">
@@ -601,7 +718,7 @@ export default function Dashboard() {
                   ) : displayedRuns.length === 0 && !runsLoading ? (
                     <p className="text-gray-500 dark:text-gray-400 text-center py-4">No crawl data available.</p>
                   ) : (
-                    <div className="overflow-x-auto">
+                    <div>
                       <table className="w-full text-left text-sm">
                         <thead className="sticky top-0 bg-gray-100 dark:bg-gray-700 z-10">
                           <tr>
@@ -667,34 +784,34 @@ export default function Dashboard() {
                               {expandedRuns.includes(run.runId) && (
                                 <tr>
                                   <td colSpan="6" className="p-3 bg-gray-100 dark:bg-gray-700">
-                                    {[
-                                      ...run.screenshotPaths.map((url, idx) => (
-                                        <a
-                                          key={`screenshot-${idx}`}
-                                          href={url}
-                                          target="_blank"
-                                          rel="noopener noreferrer"
-                                          className="text-blue-500 hover:underline text-sm"
-                                        >
-                                          Screenshot {idx + 1}
-                                        </a>
-                                      )),
-                                      ...run.videoPaths.map((url, idx) => (
-                                        <a
-                                          key={`video-${idx}`}
-                                          href={url}
-                                          target="_blank"
-                                          rel="noopener noreferrer"
-                                          className="text-blue-500 hover:underline text-sm"
-                                        >
-                                          Video {idx + 1}
-                                        </a>
-                                      )),
-                                    ]
-                                      .reduce((acc, curr, i) => (i === 0 ? [curr] : [...acc, ', ', curr]), [])
-                                      .map((elem, i) => (
+                                    <div className="flex flex-wrap gap-2">
+                                      {[
+                                        ...run.screenshotPaths.map((url, idx) => (
+                                          <a
+                                            key={`screenshot-${idx}`}
+                                            href={url}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="text-blue-500 hover:underline text-sm"
+                                          >
+                                            Screenshot {idx + 1}
+                                          </a>
+                                        )),
+                                        ...run.videoPaths.map((url, idx) => (
+                                          <a
+                                            key={`video-${idx}`}
+                                            href={url}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="text-blue-500 hover:underline text-sm"
+                                          >
+                                            Video {idx + 1}
+                                          </a>
+                                        )),
+                                      ].map((elem, i) => (
                                         <React.Fragment key={i}>{elem}</React.Fragment>
                                       ))}
+                                    </div>
                                   </td>
                                 </tr>
                               )}
@@ -881,7 +998,37 @@ export default function Dashboard() {
             </div>
 
             <div className="p-4 bg-white dark:bg-gray-800 rounded-xl shadow-lg mb-6">
-              <h2 className="text-xl font-semibold text-gray-700 dark:text-gray-300 mb-3">Test Definitions & Protocol</h2>
+              <div className="flex justify-between items-center mb-3">
+                <h2 className="text-xl font-semibold text-gray-700 dark:text-gray-300">Test Definitions & Protocol</h2>
+                <button
+                  onClick={() => {
+                    if (activeTab === 'testDefinitions') {
+                      const headers = ['Test ID', 'Title', 'Description', 'Method'];
+                      const data = testDefinitions.map(def => ({
+                        'Test ID': def.test_id,
+                        'Title': def.title,
+                        'Description': def.description,
+                        'Method': def.test_method,
+                      }));
+                      downloadCSV(headers, data, 'test_definitions.csv');
+                    } else {
+                      const headers = ['Test ID', 'Title', 'Feature', 'SF Method'];
+                      const data = sfTests.map(test => ({
+                        'Test ID': test.test_id,
+                        'Title': test.title || 'N/A',
+                        'Feature': test.screamingfrog_feature,
+                        'SF Method': test.screamingfrog_method,
+                      }));
+                      downloadCSV(headers, data, 'screaming_frog_tests.csv');
+                    }
+                  }}
+                  className="text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="currentColor">
+                    <path d="M480-320 280-520l56-58 104 104v-326h80v326l104-104 56 58-200 200ZM240-160q-33 0-56.5-23.5T160-240v-120h80v120h480v-120h80v120q0 33-23.5 56.5T720-160H240Z"/>
+                  </svg>
+                </button>
+              </div>
               <div className="flex space-x-4 mb-4">
                 <button
                   onClick={() => setActiveTab('testDefinitions')}
@@ -929,7 +1076,7 @@ export default function Dashboard() {
               )}
 
               {activeTab === 'sfTests' && (
-                <div className="flex-grow overflow-y-auto scrollbar-thin scrollbar-thumb-gray-400 scrollbar-track-gray-100 dark:scrollbar-thumb-gray-600 dark:scrollbar-track-gray-700">
+                <div className="flex-grow overflow-y-auto scrollbar-thin scrollbar-thumb-gray-400 scrollbar-track-gray-100 dark:scrollbar-thumb-gray-600 dark:scrollbar-track-gray项目-700">
                   <table className="w-full text-left text-sm">
                     <thead className="bg-gray-100 dark:bg-gray-700">
                       <tr>

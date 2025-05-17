@@ -11,6 +11,7 @@
   • Sends standardized payload to /api/store-run
   • Test definitions in README.md
   • Implements batching to limit concurrent crawls and avoid 403 errors
+  • Enhanced with global timeouts, detailed logging, and proper resource management
 ───────────────────────────────────────────────────────────────────────────────*/
 
 import os from 'os';
@@ -21,6 +22,7 @@ import path from 'path';
 import { createClient } from '@supabase/supabase-js';
 import { put } from '@vercel/blob';
 import fetch from 'node-fetch';
+import pTimeout from 'p-timeout'; // Added for global timeout
 
 // Load environment variables
 import 'dotenv/config';
@@ -271,7 +273,8 @@ const supabase = createClient(
       let pageError = null;
 
       try {
-        resp = await page.goto(url, { timeout: 60000, waitUntil: 'domcontentloaded' });
+        // Navigation with timeout
+        resp = await pTimeout(page.goto(url, { timeout: 60000, waitUntil: 'domcontentloaded' }), 60000, 'Navigation timeout');
       } catch (error) {
         console.log(`Navigation error for ${url}: ${error.message}`);
         pageError = `Navigation failed: ${error.message}`;
@@ -284,7 +287,6 @@ const supabase = createClient(
         testIds.filter(id => !allTestIds.includes(id)).forEach(id => {
           results[idx][id] = 'NA';
         });
-
         await page.close();
         await updateProgress(idx + 1, startTime);
         console.log(`     ❌ Failed navigation ${(Date.now() - t0) / 1000}s`);
@@ -356,9 +358,11 @@ const supabase = createClient(
               break;
             }
             case 'TC-07': {
+              console.log(`   Starting TC-07 for ${url}`);
               await page.waitForLoadState('networkidle', { timeout: 30000 });
               if (await page.$('video, video[data-testid="hls-video"], iframe[src*="vidyard"]')) {
                 pass = true;
+                console.log(`   TC-07: Video found directly`);
                 break;
               }
               const clickSel = await scrollAndFind(page, [
@@ -367,35 +371,59 @@ const supabase = createClient(
                 'div[data-testid="splashScreen"]',
                 '.ge-contentTeaser__content-section__contentTeaserHero__img-container'
               ], 5);
-              if (!clickSel) { pass = false; errorDetails = 'Play button/element not found'; break; }
+              if (!clickSel) {
+                pass = false;
+                errorDetails = 'Play button/element not found';
+                console.log(`   TC-07: Play button not found`);
+                break;
+              }
+              console.log(`   TC-07: Clicking ${clickSel}`);
               await jsClick(page, clickSel);
+              console.log(`   TC-07: Waiting for modal`);
               const modal = await page.waitForSelector('div.ge-modal-window, div.ge-modal-window-wrapper', { timeout: 10000 }).catch(() => null);
-              if (!modal) { pass = false; errorDetails = 'Video modal did not open'; break; }
+              if (!modal) {
+                pass = false;
+                errorDetails = 'Video modal did not open';
+                console.log(`   TC-07: Modal did not open`);
+                break;
+              }
+              console.log(`   TC-07: Waiting for Vidyard player`);
               pass = await page.waitForSelector('div.vidyard-player-container, iframe[src*="play.vidyard.com"]', { timeout: 10000 }).then(() => true).catch(() => false);
               errorDetails = pass ? '' : 'Vidyard player or iframe not found after modal opened';
+              console.log(`   TC-07: Completed - ${pass ? 'Pass' : 'Fail'}`);
               break;
             }
             case 'TC-08': {
+              console.log(`   Starting TC-08 for ${url}`);
               const cookieBanner = await page.$('#_evidon_banner');
               if (cookieBanner) {
                 const declineButton = await page.$('#_evidon-decline-button');
                 if (declineButton && await declineButton.isVisible()) {
+                  console.log(`   TC-08: Declining cookie banner`);
                   await declineButton.click();
                   await page.waitForTimeout(500);
                 }
               }
               const initialForms = await page.$$('form');
               const initialFormCount = initialForms.length;
+              console.log(`   TC-08: Initial form count: ${initialFormCount}`);
 
               const contactButtonSelector = 'button.ge-contact-us-button__contactus-action-button, a[href*="contact-us"]';
+              console.log(`   TC-08: Waiting for Contact Us button`);
               const contactButton = await page.waitForSelector(contactButtonSelector, { timeout: 10000 }).catch(() => null);
+              if (!contactButton) {
+                pass = false;
+                errorDetails = 'Contact Us button not found';
+                console.log(`   TC-08: Contact Us button not found`);
+                break;
+              }
 
-              if (!contactButton) { pass = false; errorDetails = 'Contact Us button not found'; break; }
-
+              console.log(`   TC-08: Clicking Contact Us button`);
               await jsClick(page, contactButtonSelector);
-
+              console.log(`   TC-08: Waiting for form count to increase`);
               pass = await page.waitForFunction(prevCount => document.querySelectorAll('form').length > prevCount, initialFormCount, { timeout: 10000 }).then(() => true).catch(() => false);
               errorDetails = pass ? '' : `Number of forms did not increase after clicking Contact Us button (initial: ${initialFormCount}, current: ${await page.evaluate(() => document.querySelectorAll('form').length)})`;
+              console.log(`   TC-08: Completed - ${pass ? 'Pass' : 'Fail'}`);
               break;
             }
             case 'TC-09': {
@@ -413,20 +441,17 @@ const supabase = createClient(
             case 'TC-11': {
               const insightsLinkSelector = 'div[class*="insights-list"] a, .ge-newsroom-article-card a';
               const insightsLink = await page.$(insightsLinkSelector);
-
               if (!insightsLink) {
                 pass = false;
                 errorDetails = 'No insights or newsroom link found';
                 break;
               }
-
               const href = await insightsLink.getAttribute('href');
               if (!href) {
                 pass = false;
                 errorDetails = 'Insights link has no href attribute';
                 break;
               }
-
               const targetUrl = new URL(href, page.url()).toString();
               const newPage = await context.newPage();
               const response = await newPage.goto(targetUrl, { timeout: 30000, waitUntil: 'domcontentloaded' });
@@ -443,26 +468,28 @@ const supabase = createClient(
             case 'TC-13': {
               const produkteLink = await page.$('span.ge-cdx-header-redesign__nav-menu-item__nav-link:has-text("Produkte")');
               if (!produkteLink) {
-                pass = false; errorDetails = '"Produkte" link not found'; break;
+                pass = false;
+                errorDetails = '"Produkte" link not found';
+                break;
               }
               await produkteLink.click();
-
               const ultraschallLink = await page.waitForSelector('div.menu-content-container-item-data:has-text("Ultraschall")', { timeout: 10000 }).catch(() => null);
               if (!ultraschallLink) {
-                pass = false; errorDetails = '"Ultraschall" link not found in menu'; break;
+                pass = false;
+                errorDetails = '"Ultraschall" link not found in menu';
+                break;
               }
               await ultraschallLink.click();
-
               const moreLink = await page.waitForSelector('a:has-text("Mehr erfahren"), a[href*="ge-ultraschall"], a[href*="gehealthcare-ultrasound"]', { timeout: 10000 }).catch(() => null);
               if (!moreLink) {
-                pass = false; errorDetails = '"Mehr erfahren" or equivalent link not found'; break;
+                pass = false;
+                errorDetails = '"Mehr erfahren" or equivalent link not found';
+                break;
               }
-
               const [response] = await Promise.all([
                 page.waitForNavigation({ timeout: 30000 }),
                 moreLink.click(),
               ]);
-
               const dest = page.url();
               pass = (dest.startsWith('https://www.ge-ultraschall.com/') || dest.startsWith('https://gehealthcare-ultrasound.com/')) && (response ? response.status() === 200 : true);
               errorDetails = pass ? '' : `Navigation did not go to expected ultrasound site or resulted in non-200 status: ${dest}`;
@@ -493,7 +520,6 @@ const supabase = createClient(
         results[idx][id] = pass ? 'Pass' : 'Fail';
         const result = pass ? 'pass' : 'fail';
         await insertTestResult(url, region, id, result, errorDetails, null, null);
-
         if (!pass) failedTestIds.push(id);
       }
 
@@ -503,7 +529,6 @@ const supabase = createClient(
 
       if (failedTestIds.length > 0 || captureVideo) {
         await page.waitForTimeout(2000);
-
         if (failedTestIds.length > 0) {
           const screenshotFileName = `${safeUrl}-failed-${failedTestIds.join(',')}.png`;
           const screenshotPath = path.join(screenshotDir, screenshotFileName);
@@ -548,7 +573,6 @@ const supabase = createClient(
           .eq('run_id', runId)
           .eq('url', url)
           .in('test_id', failedTestIds);
-
         if (updateError) console.error('Error updating test results with media URLs:', updateError.message || updateError);
       }
 
@@ -581,7 +605,15 @@ const supabase = createClient(
       const batch = urlBatches[batchIndex];
       console.log(`\n➡  Batch ${batchIndex + 1}/${urlBatches.length}`);
       await Promise.all(
-        batch.map((urlData, j) => runUrl(urlData, batchIndex * CONCURRENCY + j))
+        batch.map((urlData, j) =>
+          pTimeout(runUrl(urlData, batchIndex * CONCURRENCY + j), 90000, `URL processing timeout for ${urlData.url}`)
+            .catch(async (err) => {
+              console.error(`Timeout or error for ${urlData.url}: ${err.message}`);
+              results[batchIndex * CONCURRENCY + j]['Page Pass?'] = 'Fail';
+              results[batchIndex * CONCURRENCY + j]['HTTP Status'] = 'Timeout/Error';
+              await updateProgress(batchIndex * CONCURRENCY + j + 1, startTime);
+            })
+        )
       );
     }
 
