@@ -111,6 +111,14 @@ jobs:
           name: videos-${{ github.run_id }}
           path: videos/*.webm
 
+      - name: Upload debug logs artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-logs-${{ github.run_id }}
+          path: debug_logs/
+          if-no-files-found: ignore
+
       - name: Send summary to Vercel
         if: always()
         run: |

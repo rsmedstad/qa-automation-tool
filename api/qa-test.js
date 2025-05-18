@@ -180,10 +180,12 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
     context.setDefaultTimeout(10000);
     context.setDefaultNavigationTimeout(45000);
 
-    // Block non-essential resources to optimize performance
+    // Block non-essential resources to optimize performance - GTM, GA, fonts, Qualtrics and Qualified
     await context.route('**/gtm.js', route => route.abort());
     await context.route('**/analytics.js', route => route.abort());
     await context.route(/\.(woff|woff2)$/, route => route.abort());
+    await context.route('**/*qualtrics.com**', route => route.abort());
+    await context.route('**/*qualified.com**', route => route.abort());
 
     // Add initialization script to hide overlays dynamically
     await context.addInitScript(() => {
@@ -940,23 +942,24 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
         if (screenshotUrl) console.log(`Screenshot uploaded: ${screenshotUrl}`);
 
         if (captureVideo) {
-          const videoContext = await browser.newContext({
-            recordVideo: { dir: videoDir, timeout: 15000 },
-            viewport: defaultViewport
-          });
-          const videoPage = await videoContext.newPage();
-          await videoPage.goto(url, { waitUntil: 'domcontentloaded' });
-          await videoPage.waitForTimeout(5000);
-          const videoPath = await videoPage.video().path();
-          await videoContext.close();
-          const uniqueId = uuidv4();
-          const videoFileName = `${safeUrl}-${uniqueId}.webm`;
-          const finalVideoPath = path.join(videoDir, videoFileName);
-          await fs.promises.rename(videoPath, finalVideoPath);
-          videoUrl = await uploadFile(finalVideoPath, `videos/${videoFileName}`);
-          if (videoUrl) console.log(`Video uploaded: ${videoUrl}`);
+            // Capture video only for failed URLs
+            const videoContext = await browser.newContext({
+              recordVideo: { dir: videoDir, timeout: 15000 },
+              viewport: defaultViewport
+            });
+            const videoPage = await videoContext.newPage();
+            await videoPage.goto(url, { waitUntil: 'domcontentloaded' });
+            await videoPage.waitForTimeout(5000);
+            const videoPath = await videoPage.video().path();
+            await videoContext.close();
+            const uniqueId = uuidv4();
+            const videoFileName = `${safeUrl}-${uniqueId}.webm`;
+            const finalVideoPath = path.join(videoDir, videoFileName);
+            await fs.promises.rename(videoPath, finalVideoPath);
+            videoUrl = await uploadFile(finalVideoPath, `videos/${videoFileName}`);
+            if (videoUrl) console.log(`Video uploaded: ${videoUrl}`);
+          }
         }
-      }
 
       if ((screenshotUrl || videoUrl) && failedTestIds.length > 0) {
         const { error: updateError } = await supabase

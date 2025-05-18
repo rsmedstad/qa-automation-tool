@@ -9,12 +9,18 @@ const FailingTestsChart = React.memo(({ failedTests, isDarkMode, activeIssuesTab
 
   const data = useMemo(() => {
     if (!hasFails) return null;
+    const extractNumber = (str) => {
+      const match = str.match(/\d+/);
+      return match ? parseInt(match[0], 10) : 0;
+    };
+    const sortedKeys = Object.keys(failedTests).sort((a, b) => extractNumber(a) - extractNumber(b));
+    const sortedData = sortedKeys.map(key => failedTests[key]);
     return {
-      labels: Object.keys(failedTests),
+      labels: sortedKeys,
       datasets: [
         {
           label: 'Number of Fails',
-          data: Object.values(failedTests),
+          data: sortedData,
           backgroundColor: 'rgba(255, 99, 132, 0.6)',
           borderColor: 'rgba(255, 99, 132, 1)',
           borderWidth: 1,
@@ -73,8 +79,13 @@ const FailingTestsChart = React.memo(({ failedTests, isDarkMode, activeIssuesTab
         <button
           onClick={() => {
             const headers = ['Test ID', 'Number of Fails'];
+            const extractNumber = (str) => {
+              const match = str.match(/\d+/);
+              return match ? parseInt(match[0], 10) : 0;
+            };
+            const sortedEntries = Object.entries(failedTests).sort((a, b) => extractNumber(a[0]) - extractNumber(b[0]));
             const data = hasFails
-              ? Object.entries(failedTests).map(([testId, count]) => ({ 'Test ID': testId, 'Number of Fails': count }))
+              ? sortedEntries.map(([testId, count]) => ({ 'Test ID': testId, 'Number of Fails': count }))
               : [];
             downloadCSV(headers, data, activeIssuesTab === 'last' ? 'last_crawl_issues.csv' : 'trended_crawl_issues.csv');
           }}
@@ -545,7 +556,7 @@ export default function Dashboard() {
       if (Object.keys(failedTests).length > 0) {
         message += `- Failed Tests: ${Object.entries(failedTests).map(([tc, count]) => `${tc} (${count})`).join(', ')}\n`;
       }
-      message += 'Note: For precise URL-to-test failure mappings, check the artifacts.';
+      message += 'Note: For more details, view that tests Actions and Artifacts.';
     } else {
       message += 'No failures.';
     }
@@ -576,8 +587,8 @@ export default function Dashboard() {
   return (
     <>
       <Head>
-        <title>QA Automation Dashboard</title>
-        <meta name="description" content="QA Automation Testing Dashboard" />
+        <title>QAT - QA Automation Testing Dashboard</title>
+        <meta name="description" content="QAT - QA Automation Testing Dashboard" />
         <meta name="robots" content="noindex" />
         <link rel="icon" href="/favicon.ico" />
         <link rel="apple-touch-icon" sizes="192x192" href="/favicon-192x192.png" />
@@ -593,7 +604,7 @@ export default function Dashboard() {
       <div className="min-h-screen bg-gray-100 dark:bg-gray-900 text-gray-900 dark:text-gray-100 transition-colors duration-200 font-sans">
         <main className="container mx-auto px-2 sm:px-4 py-6 sm:py-8">
           <div className="flex flex-col sm:flex-row justify-between items-center mb-6 sm:mb-8">
-            <h1 className="text-2xl sm:text-3xl font-bold text-gray-800 dark:text-gray-200 mb-2 sm:mb-0">QA Automation Dashboard</h1>
+            <h1 className="text-2xl sm:text-3xl font-bold text-gray-800 dark:text-gray-200 mb-2 sm:mb-0">QAT - QA Automation Testing Dashboard</h1>
             <button
               onClick={() => setIsDarkMode(!isDarkMode)}
               className="p-2 rounded-lg bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
@@ -748,7 +759,7 @@ export default function Dashboard() {
                                 <td className="p-3 text-red-600 dark:text-red-400 font-medium text-center">{run.failureCount || 0}</td>
                                 <td className="p-3">
                                   {run.hasArtifacts || run.screenshotPaths.length > 0 || run.videoPaths.length > 0 ? (
-                                    <div>
+                                    <div className="flex items-center space-x-2">
                                       <a
                                         href={`https://github.com/rsmedstad/qa-automation-tool/actions/runs/${run.runId}`}
                                         target="_blank"
@@ -769,7 +780,7 @@ export default function Dashboard() {
                                                 : [...prev, run.runId]
                                             )
                                           }
-                                          className="ml-2 text-blue-500 hover:underline text-sm"
+                                          className="text-blue-500 hover:underline text-sm"
                                         >
                                           {expandedRuns.includes(run.runId) ? 'Hide' : 'Show'} Artifacts (
                                           {run.screenshotPaths.length + run.videoPaths.length})
@@ -875,7 +886,7 @@ export default function Dashboard() {
                         name="captureVideo"
                         className="mr-2 h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 dark:border-gray-600 rounded"
                       />
-                      Capture Video for all URLs tested (not just Failed URLs)
+                      Capture Video for Failed URLs
                     </label>
                   </div>
                   <div className="flex items-center justify-between space-x-4">
@@ -1076,7 +1087,7 @@ export default function Dashboard() {
               )}
 
               {activeTab === 'sfTests' && (
-                <div className="flex-grow overflow-y-auto scrollbar-thin scrollbar-thumb-gray-400 scrollbar-track-gray-100 dark:scrollbar-thumb-gray-600 dark:scrollbar-track-gray项目-700">
+                <div className="flex-grow overflow-y-auto scrollbar-thin scrollbar-thumb-gray-400 scrollbar-track-gray-100 dark:scrollbar-thumb-gray-600 dark:scrollbar-track-gray-700">
                   <table className="w-full text-left text-sm">
                     <thead className="bg-gray-100 dark:bg-gray-700">
                       <tr>
