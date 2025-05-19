@@ -101,13 +101,13 @@ const FailingTestsChart = React.memo(({ failedTests, isDarkMode, activeIssuesTab
       <div className="flex space-x-4 my-4">
         <button
           onClick={() => setActiveIssuesTab('last')}
-          className={`w-34 px-4 py-4 rounded-lg ${activeIssuesTab === 'last' ? 'bg-indigo-600 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'}`}
+          className={`w-34 px-4 py-2 rounded-lg ${activeIssuesTab === 'last' ? 'bg-indigo-600 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'}`}
         >
           Last Crawl
         </button>
         <button
           onClick={() => setActiveIssuesTab('trended')}
-          className={`w-34 px-4 py-4 rounded-lg ${activeIssuesTab === 'trended' ? 'bg-indigo-600 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'}`}
+          className={`w-34 px-4 py-2 rounded-lg ${activeIssuesTab === 'trended' ? 'bg-indigo-600 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'}`}
         >
           Trended (Last 30)
         </button>
@@ -928,8 +928,8 @@ export default function Dashboard() {
                       Capture Video for Failed URLs
                     </label>
                   </div>
-                  <div className bénéfice="mt-auto flex items-center justify-between space-x-4">
-                    <div className="flex-1">
+                  <div className="flex items-center mt-auto">
+                    <div>
                       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" htmlFor="file">
                         Select input.xlsx
                       </label>
@@ -939,13 +939,13 @@ export default function Dashboard() {
                         name="file"
                         accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                         disabled={testType === 'standard'}
-                        className="w-full text-sm text-gray-500 dark:text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-500 dark:file:bg-blue-600 file:text-white hover:file:bg-blue-600 dark:hover:file:bg-blue-700 cursor-pointer disabled:opacity-50"
+                        className="text-sm text-gray-500 dark:text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-500 dark:file:bg-blue-600 file:text-white hover:file:bg-blue-600 dark:hover:file:bg-blue-700 cursor-pointer disabled:opacity-50"
                       />
                     </div>
                     <button
                       type="submit"
                       disabled={submissionStatus === 'loading'}
-                      className="px-5 py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800 disabled:opacity-60"
+                      className="ml-auto px-5 py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800 disabled:opacity-60"
                     >
                       {submissionStatus === 'loading' ? 'Submitting...' : 'Run Test'}
                     </button>
