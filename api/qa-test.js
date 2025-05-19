@@ -17,6 +17,7 @@
   • Updated TC-07 to scroll play button into view and use broader hover target
   • Updated TC-08 with refined Contact Us button selector targeting hero section
   • Updated TC-13 with simplified submenu wait condition for Ultraschall link
+  • Added survey handling mechanisms to block and dismiss survey pop-ups
 ──────────────────────────────────────────────────────────────────────────────*/
 
 import os from 'os';
@@ -180,23 +181,40 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
     context.setDefaultTimeout(10000);
     context.setDefaultNavigationTimeout(45000);
 
-    // Block non-essential resources to optimize performance - GTM, GA, fonts, Qualtrics and Qualified
-    await context.route('**/gtm.js', route => route.abort());
-    await context.route('**/analytics.js', route => route.abort());
-    await context.route(/\.(woff|woff2)$/, route => route.abort());
-    await context.route('**/*qualtrics.com**', route => route.abort());
-    await context.route('**/*qualified.com**', route => route.abort());
+    // Block non-essential resources to optimize performance and prevent survey pop-ups
+    await context.route('**/*', route => {
+      const url = route.request().url();
+      const blocked = [
+        'gtm.js',           // Google Tag Manager
+        'analytics.js',     // Google Analytics
+        '.woff',            // Font files
+        '.woff2',           // Font files
+        'qualtrics.com',    // Qualtrics survey platform
+        'qualified.com',    // Qualified chat platform
+        'survey',           // General survey-related requests
+        'feedback',         // Feedback-related requests
+        'msecnd.net/survey', // Specific survey domain
+        'siteintercept'     // Site intercept scripts
+      ];
+      if (blocked.some(substring => url.includes(substring))) {
+        console.log(`Blocked: ${url}`);
+        return route.abort();
+      }
+      return route.continue();
+    });
 
-    // Add initialization script to hide overlays dynamically
+    // Add initialization script to hide overlays and surveys dynamically
     await context.addInitScript(() => {
-      const keywords = ['cookie', 'consent', 'gdpr', 'evidon', 'overlay', 'popup'];
+      const keywords = ['cookie', 'consent', 'gdpr', 'evidon', 'overlay', 'popup', 'survey'];
       const hide = (el) => el && el.style && (el.style.display = 'none');
       new MutationObserver(muts => {
         muts.forEach(m => {
           m.addedNodes.forEach(node => {
             if (node.nodeType === 1) {
               const txt = (node.innerText || '').toLowerCase();
-              if (keywords.some(k => txt.includes(k)) || keywords.some(k => node.id?.toLowerCase().includes(k))) {
+              if (keywords.some(k => txt.includes(k)) || 
+                  keywords.some(k => node.id?.toLowerCase().includes(k)) || 
+                  (node.tagName === 'IFRAME' && node.getAttribute('name')?.includes('survey'))) {
                 hide(node);
               }
             }
@@ -210,7 +228,6 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
     /* Helper Functions */
 
     // Scroll page to find elements, returns first matching selector
-    // Used to locate elements that may be below the fold or lazy-loaded
     async function scrollAndFind(page, selectors, maxScreens = 5) {
       const viewH = await page.evaluate(() => window.innerHeight);
       for (let pass = 0; pass < maxScreens; pass++) {
@@ -224,7 +241,6 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
     }
 
     // Perform a JavaScript click on an element using Playwright locator
-    // Ensures reliable clicking by scrolling the element into view
     async function jsClick(page, selector) {
       const locator = typeof selector === 'string' ? page.locator(selector) : selector;
       if (await locator.count() === 0) return false;
@@ -234,7 +250,6 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
     }
 
     // Log page DOM for debugging failed tests
-    // Saves the full HTML to a file for analysis
     async function logPageDom(page, url, testId) {
       try {
         const safeUrl = url.replace(/[^a-zA-Z0-9_-]/g, '_');
@@ -248,7 +263,6 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
     }
 
     // Upload file to Vercel Blob with retry mechanism
-    // Used for storing screenshots and videos of failed tests
     async function uploadFile(filePath, destPath, retries = 3) {
       if (!process.env.BLOB_READ_WRITE_TOKEN) {
         console.error('BLOB_READ_WRITE_TOKEN is not set in the environment.');
@@ -282,7 +296,6 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
     }
 
     // Delete file with retry mechanism, continue if it fails
-    // Ensures temporary files are cleaned up
     async function deleteFile(filePath, retries = 3) {
       for (let attempt = 1; attempt <= retries; attempt++) {
         try {
@@ -303,7 +316,6 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
     }
 
     // Update crawl progress in Supabase with ETA
-    // Tracks test progress and estimates completion time
     async function updateProgress(completed, startTime) {
       const now = new Date();
       const elapsedMs = now - new Date(startTime);
@@ -329,7 +341,6 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
     }
 
     // Insert test result into Supabase
-    // Stores individual test outcomes for reporting
     async function insertTestResult(url, region, testId, result, errorDetails, screenshotUrl, videoUrl) {
       const { error } = await supabase
         .from('test_results')
@@ -347,7 +358,6 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
     }
 
     // Handle Gatekeeper interstitial if present
-    // Clicks "Yes" to bypass gatekeeper, tracks detection status
     async function handleGatekeeper(page, url) {
       const gatekeeperSelectors = ['section.ge-gatekeeper', '[class*="gatekeeper"]'];
       const yesButtonSelector = 'button.ge-gatekeeper-button.ge-button--solid-primary';
@@ -376,7 +386,6 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
     }
 
     // Handle overlays (e.g., cookie banners) dynamically
-    // Attempts to dismiss overlays by clicking accept buttons
     async function handleOverlays(page) {
       const overlaySelectors = [
         'div#_evidon_banner',
@@ -414,6 +423,34 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
       return false;
     }
 
+    // Handle survey pop-up if present
+    async function handleSurvey(page) {
+      const surveySelectors = [
+        'iframe[name*="survey"]',           // Targets survey iframe by name attribute
+        'iframe[id="cs-native-frame"]',     // Targets specific survey iframe by ID
+        '.survey',                          // Generic survey class
+        '.modal-survey',                    // Modal survey class
+        '[id*="survey"]',                   // Elements with survey in ID
+        'button[aria-label="Close"]',       // Close button by aria-label
+        'button[class*="dismiss"]'          // Dismiss buttons by class
+      ];
+
+      for (const selector of surveySelectors) {
+        try {
+          const element = await page.waitForSelector(selector, { timeout: 2000 });
+          if (element) {
+            await element.click();
+            console.log(`   Survey dismissed using selector: ${selector}`);
+            return true;
+          }
+        } catch (e) {
+          // Ignore and continue to the next selector
+        }
+      }
+      console.log('   No survey pop-up found or unable to dismiss');
+      return false;
+    }
+
     const allScreenshotUrls = [];
     const allVideoUrls = [];
 
@@ -445,18 +482,37 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
         contextToUse = await browser.newContext(defaultContextOptions);
         contextToUse.setDefaultTimeout(10000);
         contextToUse.setDefaultNavigationTimeout(45000);
-        await contextToUse.route('**/gtm.js', route => route.abort());
-        await contextToUse.route('**/analytics.js', route => route.abort());
-        await contextToUse.route(/\.(woff|woff2)$/, route => route.abort());
+        await contextToUse.route('**/*', route => {
+          const url = route.request().url();
+          const blocked = [
+            'gtm.js',
+            'analytics.js',
+            '.woff',
+            '.woff2',
+            'qualtrics.com',
+            'qualified.com',
+            'survey',
+            'feedback',
+            'msecnd.net/survey',
+            'siteintercept'
+          ];
+          if (blocked.some(substring => url.includes(substring))) {
+            console.log(`Blocked: ${url}`);
+            return route.abort();
+          }
+          return route.continue();
+        });
         await contextToUse.addInitScript(() => {
-          const keywords = ['cookie', 'consent', 'gdpr', 'evidon', 'overlay', 'popup'];
+          const keywords = ['cookie', 'consent', 'gdpr', 'evidon', 'overlay', 'popup', 'survey'];
           const hide = (el) => el && el.style && (el.style.display = 'none');
           new MutationObserver(muts => {
             muts.forEach(m => {
               m.addedNodes.forEach(node => {
                 if (node.nodeType === 1) {
                   const txt = (node.innerText || '').toLowerCase();
-                  if (keywords.some(k => txt.includes(k)) || keywords.some(k => node.id?.toLowerCase().includes(k))) {
+                  if (keywords.some(k => txt.includes(k)) || 
+                      keywords.some(k => node.id?.toLowerCase().includes(k)) || 
+                      (node.tagName === 'IFRAME' && node.getAttribute('name')?.includes('survey'))) {
                     hide(node);
                   }
                 }
@@ -474,6 +530,7 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
         console.log('   Navigation completed');
         gatekeeperDetected = await handleGatekeeper(page, url);
         await handleOverlays(page);
+        await handleSurvey(page); // Handle survey pop-up after other interstitials
       } catch (error) {
         console.log(`   Navigation error for ${url}: ${error.message}`);
         pageError = `Navigation failed: ${error.message}`;
@@ -515,7 +572,6 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
         let pass = false;
         let errorDetails = '';
         try {
-          // Adjust timeout for tests with potentially heavy content
           if (['TC-07', 'TC-11'].includes(id)) {
             page.setDefaultTimeout(15000);
           } else {
@@ -528,51 +584,43 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
           }
 
           switch (id) {
-            // TC-01: Verify hero text visibility on desktop
             case 'TC-01': {
               const heroText = await page.$('section.ge-homepage-hero-v2-component .ge-homepage-hero-v2__text-content');
               pass = heroText && await heroText.isVisible();
               errorDetails = pass ? '' : 'Hero text not found or not visible in hero section';
               break;
             }
-            // TC-02: Verify hero text visibility on mobile
             case 'TC-02': {
               const heroText = await page.$('div[id*="ge-homepage-hero"] .ge-homepage-hero-v2__text-content, section.ge-homepage-hero-v2-component .ge-homepage-hero-v2__text-content');
               pass = heroText && await heroText.isVisible();
               errorDetails = pass ? '' : 'Hero text not found or not visible on mobile viewport';
               break;
             }
-            // TC-03: Check for header presence
             case 'TC-03': {
               pass = !!(await page.$('header, [class*="header"]'));
               errorDetails = pass ? '' : 'Header element not found';
               break;
             }
-            // TC-04: Check for navigation presence
             case 'TC-04': {
               pass = !!(await page.$('nav, [class*="nav"]'));
               errorDetails = pass ? '' : 'Navigation element not found';
               break;
             }
-            // TC-05: Check for main content presence
             case 'TC-05': {
               pass = !!(await page.$('main, [class*="main"]'));
               errorDetails = pass ? '' : 'Main content element not found';
               break;
             }
-            // TC-06: Check for footer presence
             case 'TC-06': {
               pass = !!(await page.$('footer, [class*="footer"]'));
               errorDetails = pass ? '' : 'Footer element not found';
               break;
             }
-            // TC-07: Verify video content or player activation
             case 'TC-07': {
               console.log(`   TC-07: Starting for ${url}`);
               await page.waitForLoadState('networkidle');
               await page.waitForTimeout(500);
 
-              // Check for direct video elements
               if (await page.$('video, video[data-testid="hls-video"], iframe[src*="vidyard"], [data-testid*="video"]')) {
                 pass = true;
                 console.log(`   TC-07: Video found directly`);
@@ -581,10 +629,10 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
 
               console.log(`   TC-07: No video found, searching for play button`);
               const playButtonSelector = await scrollAndFind(page, [
-                '.eds-rd-play',                            // Primary play button class
-                '.eds-rd-play-icon',                      // Nested or standalone play icon
-                '.ge-contentTeaser__content-section__contentTeaserHero-play-icon', // Play button container
-                '.ge-contentTeaser__content-section__contentTeaserHero__img-container', // Image container
+                '.eds-rd-play',
+                '.eds-rd-play-icon',
+                '.ge-contentTeaser__content-section__contentTeaserHero-play-icon',
+                '.ge-contentTeaser__content-section__contentTeaserHero__img-container',
                 '[class*="play-button"]',
                 '[data-testid*="play"]'
               ], 5);
@@ -600,17 +648,15 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
               const playButton = page.locator(playButtonSelector);
               console.log(`   TC-07: Found play button: ${playButtonSelector}`);
 
-              // Scroll to the image container to ensure play button is in view
               const imgContainer = page.locator('.ge-contentTeaser__content-section__contentTeaserHero__img-container');
               if (await imgContainer.count()) {
                 await imgContainer.first().scrollIntoViewIfNeeded();
-                await page.waitForTimeout(500); // Wait for animations or lazy-loading
+                await page.waitForTimeout(500);
               } else {
                 await playButton.scrollIntoViewIfNeeded();
                 await page.waitForTimeout(500);
               }
 
-              // Hover over the image container to trigger play button visibility
               if (await imgContainer.count()) {
                 await imgContainer.first().hover();
                 await page.waitForTimeout(500);
@@ -620,7 +666,6 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
                 await page.waitForTimeout(500);
               }
 
-              // Custom visibility check
               const isVisible = await page.evaluate((sel) => {
                 const elem = document.querySelector(sel);
                 if (!elem) return false;
@@ -638,11 +683,9 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
                 break;
               }
 
-              // Click the play button
               await playButton.click();
               console.log(`   TC-07: Clicked play button, waiting for modal`);
 
-              // Wait for the modal with specific classes
               const modal = await page.waitForSelector(
                 'div.ge-modal-window, div.ge-contentTeaser__content-section__video-modal, div.ge-contentTeaser__content-section__vidyard-video-modal',
                 { timeout: 10000 }
@@ -665,7 +708,6 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
               if (!pass) await logPageDom(page, url, 'TC-07');
               break;
             }
-            // TC-08: Verify contact form activation
             case 'TC-08': {
               console.log(`   TC-08: Starting for ${url}`);
               await page.waitForLoadState('networkidle');
@@ -675,17 +717,14 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
               const initialFormCount = initialForms.length;
               console.log(`   TC-08: Initial form count: ${initialFormCount}`);
 
-              // Step 1: Target the specific "Contact Us" button with name="Open Form Overlay"
               let contact = page.locator('button[name="Open Form Overlay"], a[name="Open Form Overlay"]').first();
 
-              // Step 2: If not found, fall back to buttons/links in specific sections
               if (!(await contact.count())) {
                 contact = page.locator('section.ge-category-hero button, section.campaign-hero__ctas-primary button, section.ge-category-hero a, section.campaign-hero__ctas-primary a')
                   .filter({ hasText: /contact|request|demander/i })
                   .first();
               }
 
-              // Step 3: Fall back to global search for buttons first, then links
               if (!(await contact.count())) {
                 contact = page.locator('button')
                   .filter({ hasText: /contact|request|demander/i })
@@ -697,14 +736,12 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
                   .first();
               }
 
-              // Step 4: Use data attributes as a final fallback
               if (!(await contact.count())) {
                 contact = page.locator('[data-analytics-link-type="Category Hero"], [data-analytics-link-type="Campaign Hero"], [data-analytics-link-type="Contact Widget"]')
                   .filter({ hasText: /contact|request|demander/i })
                   .first();
               }
 
-              // Check if a contact element was found
               if (!(await contact.count())) {
                 console.log('   TC-08: No contact button or link found');
                 pass = false;
@@ -715,7 +752,6 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
 
               console.log(`   TC-08: Found contact element: ${await contact.textContent()}`);
 
-              // Ensure the contact element is visible
               try {
                 await contact.waitFor({ state: 'visible', timeout: 20000 });
               } catch (e) {
@@ -729,7 +765,6 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
               await contact.scrollIntoViewIfNeeded();
               await contact.click({ force: true });
 
-              // Verify form count increases
               console.log(`   TC-08: Waiting for form count to increase`);
               pass = await page.waitForFunction(
                 prevCount => document.querySelectorAll('form').length > prevCount,
@@ -741,8 +776,6 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
               if (!pass) await logPageDom(page, url, 'TC-08');
               break;
             }
-
-            // TC-09: Check for rendering error text
             case 'TC-09': {
               const errorText = 'A rendering error occurred';
               const pageContent = await page.content();
@@ -750,7 +783,6 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
               errorDetails = pass ? '' : `Page content contains "${errorText}"`;
               break;
             }
-            // TC-10: Verify Gatekeeper UI in incognito mode
             case 'TC-10': {
               console.log(`   TC-10: Checking gatekeeper handling for ${url}`);
               console.log(`   TC-10: Gatekeeper detected: ${gatekeeperDetected}, HTTP status: ${resp ? resp.status() : 'N/A'}, Final URL: ${page.url()}`);
@@ -762,7 +794,6 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
               console.log(`   TC-10: Result: ${pass ? 'Pass' : 'Fail'} (${errorDetails})`);
               break;
             }
-            // TC-11: Verify insights/newsroom link navigation
             case 'TC-11': {
               console.log(`   TC-11: Starting for ${url}`);
               await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
@@ -805,7 +836,6 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
               await newPage.close();
               break;
             }
-            // TC-12: Verify Doc Check redirect in incognito mode
             case 'TC-12': {
               console.log(`   TC-12: Final URL: ${page.url()}`);
               const finalUrl = page.url();
@@ -814,13 +844,11 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
               if (!pass) await logPageDom(page, url, 'TC-12');
               break;
             }
-            // TC-13: Verify navigation through menu to ultrasound site
             case 'TC-13': {
               console.log(`   TC-13: Starting for ${url}`);
               await page.waitForLoadState('networkidle');
               await page.waitForTimeout(500);
 
-              // Step 1: Locate and click 'Produkte' button
               const produkteButton = page.getByRole('button', { name: 'Produkte' }).first();
               try {
                 await produkteButton.waitFor({ state: 'visible', timeout: 30000 });
@@ -835,7 +863,6 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
               console.log(`   TC-13: Clicking Produkte button`);
               await produkteButton.click();
 
-              // Step 2: Locate and click 'Ultraschall' submenu item
               let ultraschallButton = page.getByRole('button', { name: 'Ultraschall' });
               try {
                 await ultraschallButton.waitFor({ state: 'visible', timeout: 10000 });
@@ -856,7 +883,6 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
               console.log(`   TC-13: Clicking Ultraschall submenu item`);
               await ultraschallButton.click();
 
-              // Step 3: Locate the 'Mehr erfahren' link by href
               const moreLink = page.locator('a[href="https://www.ge-ultraschall.com/"]');
               try {
                 await moreLink.waitFor({ state: 'visible', timeout: 30000 });
@@ -875,7 +901,6 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
                 console.log('   TC-13: Found "Mehr erfahren" link via text fallback');
               }
 
-              // Step 4: Click the link and wait for navigation
               console.log(`   TC-13: Clicking "Mehr erfahren" link`);
               await moreLink.scrollIntoViewIfNeeded();
               await moreLink.click();
@@ -884,7 +909,6 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
                 console.log('   TC-13: Navigation wait timed out, proceeding with current URL');
               });
 
-              // Step 5: Verify the final URL starts with the expected domains
               const dest = page.url();
               console.log(`   TC-13: Navigated to ${dest}`);
               pass = dest.startsWith('https://gehealthcare-ultrasound.com/') || dest.startsWith('https://www.ge-ultraschall.com/');
@@ -892,8 +916,6 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
               if (!pass) await logPageDom(page, url, 'TC-13');
               break;
             }
-
-            // TC-14: Verify HTTP status is successful
             case 'TC-14': {
               const c = resp ? resp.status() : 0;
               pass = (c >= 200 && c < 300) || HTTP_REDIRECT.includes(c);
@@ -932,7 +954,6 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
       let videoUrl = null;
       const safeUrl = url.replace(/[^a-zA-Z0-9_-]/g, '_');
 
-      // Capture screenshots and videos for failed tests
       if (failedTestIds.length > 0) {
         await page.waitForTimeout(2000);
         const screenshotFileName = `${safeUrl}-failed-${failedTestIds.join(',')}.png`;
@@ -942,24 +963,23 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
         if (screenshotUrl) console.log(`Screenshot uploaded: ${screenshotUrl}`);
 
         if (captureVideo) {
-            // Capture video only for failed URLs
-            const videoContext = await browser.newContext({
-              recordVideo: { dir: videoDir, timeout: 15000 },
-              viewport: defaultViewport
-            });
-            const videoPage = await videoContext.newPage();
-            await videoPage.goto(url, { waitUntil: 'domcontentloaded' });
-            await videoPage.waitForTimeout(5000);
-            const videoPath = await videoPage.video().path();
-            await videoContext.close();
-            const uniqueId = uuidv4();
-            const videoFileName = `${safeUrl}-${uniqueId}.webm`;
-            const finalVideoPath = path.join(videoDir, videoFileName);
-            await fs.promises.rename(videoPath, finalVideoPath);
-            videoUrl = await uploadFile(finalVideoPath, `videos/${videoFileName}`);
-            if (videoUrl) console.log(`Video uploaded: ${videoUrl}`);
-          }
+          const videoContext = await browser.newContext({
+            recordVideo: { dir: videoDir, timeout: 15000 },
+            viewport: defaultViewport
+          });
+          const videoPage = await videoContext.newPage();
+          await videoPage.goto(url, { waitUntil: 'domcontentloaded' });
+          await videoPage.waitForTimeout(5000);
+          const videoPath = await videoPage.video().path();
+          await videoContext.close();
+          const uniqueId = uuidv4();
+          const videoFileName = `${safeUrl}-${uniqueId}.webm`;
+          const finalVideoPath = path.join(videoDir, videoFileName);
+          await fs.promises.rename(videoPath, finalVideoPath);
+          videoUrl = await uploadFile(finalVideoPath, `videos/${videoFileName}`);
+          if (videoUrl) console.log(`Video uploaded: ${videoUrl}`);
         }
+      }
 
       if ((screenshotUrl || videoUrl) && failedTestIds.length > 0) {
         const { error: updateError } = await supabase

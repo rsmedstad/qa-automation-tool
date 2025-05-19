@@ -1219,6 +1219,8 @@ export default function Dashboard() {
                     <h4>How to Test Manually with Screaming Frog</h4>
                     <ul>
                       <li>See the "Screaming Frog" tab in "Test Definitions & Protocol" for steps to replicate tests manually.</li>
+                      <li>Please note that if testing with Screaming Frog, you will need to have a paid version of the software to utilize Custom Extraction features.</li>
+                      <li>The Screaming Frog application can be downloaded directly from their website and a license key can be requested from MyTech.</li>
                     </ul>
                     <h4>Contact</h4>
                     <ul>
