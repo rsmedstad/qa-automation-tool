@@ -4,6 +4,21 @@ import ChartDataLabels from 'chartjs-plugin-datalabels';
 import { Bar } from 'react-chartjs-2';
 import Head from 'next/head';
 
+// Moved downloadCSV outside of components
+const downloadCSV = (headers, data, filename) => {
+  const csv = [
+    headers.join(','),
+    ...data.map(row => headers.map(header => `"${row[header] || ''}"`).join(',')),
+  ].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+};
+
 const FailingTestsChart = React.memo(({ failedTests, isDarkMode, activeIssuesTab, setActiveIssuesTab }) => {
   const hasFails = failedTests && Object.keys(failedTests).length > 0;
 
@@ -58,22 +73,8 @@ const FailingTestsChart = React.memo(({ failedTests, isDarkMode, activeIssuesTab
     maintainAspectRatio: false,
   }), [isDarkMode]);
 
-  const downloadCSV = (headers, data, filename) => {
-    const csv = [
-      headers.join(','),
-      ...data.map(row => headers.map(header => `"${row[header] || ''}"`).join(',')),
-    ].join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
   return (
-    <div className="p-4 bg-white dark:bg-gray-800 rounded-xl shadow-lg">
+    <div className="p-4 bg-white dark:bg-gray-800 rounded-xl shadow-lg h-full">
       <div className="flex justify-between items-center py-2 border-b border-gray-200 dark:border-gray-700">
         <h2 className="text-xl font-semibold text-gray-700 dark:text-gray-300">Crawl Issues</h2>
         <button
@@ -90,6 +91,7 @@ const FailingTestsChart = React.memo(({ failedTests, isDarkMode, activeIssuesTab
             downloadCSV(headers, data, activeIssuesTab === 'last' ? 'last_crawl_issues.csv' : 'trended_crawl_issues.csv');
           }}
           className="text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100"
+          aria-label="Download CSV"
         >
           <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="currentColor">
             <path d="M480-320 280-520l56-58 104 104v-326h80v326l104-104 56 58-200 200ZM240-160q-33 0-56.5-23.5T160-240v-120h80v120h480v-120h80v120q0 33-23.5 56.5T720-160H240Z"/>
@@ -99,19 +101,19 @@ const FailingTestsChart = React.memo(({ failedTests, isDarkMode, activeIssuesTab
       <div className="flex space-x-4 my-4">
         <button
           onClick={() => setActiveIssuesTab('last')}
-          className={`px-4 py-2 rounded-lg ${activeIssuesTab === 'last' ? 'bg-indigo-600 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'}`}
+          className={`w-34 px-4 py-4 rounded-lg ${activeIssuesTab === 'last' ? 'bg-indigo-600 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'}`}
         >
           Last Crawl
         </button>
         <button
           onClick={() => setActiveIssuesTab('trended')}
-          className={`px-4 py-2 rounded-lg ${activeIssuesTab === 'trended' ? 'bg-indigo-600 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'}`}
+          className={`w-34 px-4 py-4 rounded-lg ${activeIssuesTab === 'trended' ? 'bg-indigo-600 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'}`}
         >
           Trended (Last 30)
         </button>
       </div>
       {hasFails ? (
-        <div style={{ height: '300px' }}>
+        <div style={{ height: 'calc(100% - 120px)' }}>
           <Bar data={data} options={options} />
         </div>
       ) : (
@@ -124,7 +126,6 @@ const FailingTestsChart = React.memo(({ failedTests, isDarkMode, activeIssuesTab
 export default function Dashboard() {
   const [runs, setRuns] = useState([]);
   const [question, setQuestion] = useState('');
-  const [answer, setAnswer] = useState('');
   const [messages, setMessages] = useState([]);
   const [runsLoading, setRunsLoading] = useState(false);
   const [askLoading, setAskLoading] = useState(false);
@@ -143,8 +144,25 @@ export default function Dashboard() {
   const [activeTab, setActiveTab] = useState('testDefinitions');
   const [expandedRuns, setExpandedRuns] = useState([]);
   const [activeIssuesTab, setActiveIssuesTab] = useState('last');
+  const [activeInfoTab, setActiveInfoTab] = useState('about');
   const chartRef = useRef(null);
   const donutChartRef = useRef(null);
+
+  const handleShare = async () => {
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: 'QAT - QA Automation Testing Dashboard',
+          text: 'Check out this QA Automation Testing Dashboard!',
+          url: window.location.href,
+        });
+      } catch (error) {
+        console.error('Error sharing:', error);
+      }
+    } else {
+      alert('Share functionality is not supported on this device. You can copy the link: ' + window.location.href);
+    }
+  };
 
   useEffect(() => {
     const fetchRuns = async () => {
@@ -333,7 +351,7 @@ export default function Dashboard() {
           type: 'doughnut',
           data: {
             labels: ['Scheduled', 'Ad-Hoc'],
-            datasets: [{ data: [scheduledCount, adHocCount], backgroundColor: ['#6366F1', '#A855F7'], borderColor: [isDarkMode ? '#4338CA' : '#FFFFFF', isDarkMode ? '#7E22CE' : '#FFFFFF'], borderWidth: 2, hoverOffset: 4 }],
+            datasets: [{ data: [scheduledCount, adHocCount], backgroundColor: ['#3182ce', '#90bde9'], borderColor: [isDarkMode ? '#3182ce' : '#FFFFFF', isDarkMode ? '#90bde9' : '#FFFFFF'], borderWidth: 2, hoverOffset: 4 }],
           },
           options: {
             responsive: true,
@@ -382,7 +400,6 @@ export default function Dashboard() {
       });
       const data = await response.json();
       if (response.ok) {
-        setAnswer(data.answer);
         setMessages((prev) => [...prev, { type: 'gemini', content: data.answer }]);
       } else {
         setGeminiError(data.message || 'Something went wrong with the LLM request.');
@@ -518,7 +535,7 @@ export default function Dashboard() {
     return [...runs].sort((a, b) => new Date(b.date) - new Date(a.date));
   }, [runs]);
 
-  const displayedRuns = showAll ? sortedRuns : sortedRuns.slice(0, 5);
+  const displayedRuns = showAll ? sortedRuns : sortedRuns.slice(0, 7);
 
   const trendedFailedTests = useMemo(() => {
     const last30Runs = sortedRuns.slice(0, 30);
@@ -532,6 +549,12 @@ export default function Dashboard() {
     });
     return aggregated;
   }, [sortedRuns]);
+
+  const sortByTestId = (a, b) => {
+    const numA = parseInt(a.test_id.match(/\d+/)[0], 10);
+    const numB = parseInt(b.test_id.match(/\d+/)[0], 10);
+    return numA - numB;
+  };
 
   const getInsightMessage = (run) => {
     if (!run) return 'No crawls have been run yet.';
@@ -556,9 +579,11 @@ export default function Dashboard() {
       if (Object.keys(failedTests).length > 0) {
         message += `- Failed Tests: ${Object.entries(failedTests).map(([tc, count]) => `${tc} (${count})`).join(', ')}\n`;
       }
-      message += 'Note: For more details, view that tests Actions and Artifacts.';
+      message += 'Note: For more details, view that tests Actions and Artifacts.\n\n';
+      message += 'Enable Gemini to query test results or seek insights using natural language and receive AI-driven answers.';
     } else {
-      message += 'No failures.';
+      message += 'No failures.\n\n';
+      message += 'Enable Gemini to query test results or seek insights using natural language and receive AI-driven answers.';
     }
     return message;
   };
@@ -570,26 +595,16 @@ export default function Dashboard() {
     }
   };
 
-  const downloadCSV = (headers, data, filename) => {
-    const csv = [
-      headers.join(','),
-      ...data.map(row => headers.map(header => `"${row[header] || ''}"`).join(',')),
-    ].join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
   return (
     <>
       <Head>
         <title>QAT - QA Automation Testing Dashboard</title>
         <meta name="description" content="QAT - QA Automation Testing Dashboard" />
         <meta name="robots" content="noindex" />
+        <meta property="og:title" content="QAT - QA Automation Testing Dashboard" />
+        <meta property="og:description" content="A dashboard for QA automation testing." />
+        <meta property="og:image" content="/web-app-manifest-192x192.png" />
+        <meta property="og:url" content={typeof window !== 'undefined' ? window.location.href : ''} />
         <link rel="icon" href="/favicon.ico" />
         <link rel="apple-touch-icon" sizes="192x192" href="/favicon-192x192.png" />
         <link rel="icon" type="image/png" sizes="96x96" href="/favicon-96x96.png" />
@@ -604,22 +619,48 @@ export default function Dashboard() {
       <div className="min-h-screen bg-gray-100 dark:bg-gray-900 text-gray-900 dark:text-gray-100 transition-colors duration-200 font-sans">
         <main className="container mx-auto px-2 sm:px-4 py-6 sm:py-8">
           <div className="flex flex-col sm:flex-row justify-between items-center mb-6 sm:mb-8">
-            <h1 className="text-2xl sm:text-3xl font-bold text-gray-800 dark:text-gray-200 mb-2 sm:mb-0">QAT - QA Automation Testing Dashboard</h1>
-            <button
-              onClick={() => setIsDarkMode(!isDarkMode)}
-              className="p-2 rounded-lg bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              aria-label="Toggle dark mode"
-            >
-              {isDarkMode ? (
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+            <div className="flex items-center mb-2 sm:mb-0">
+              <img
+                src="/favicon.svg"
+                alt="QAT Favicon"
+                className="w-6 sm:w-9 h-6 sm:h-9 mr-2"
+              />
+              <span className="text-2xl sm:text-3xl font-bold text-gray-800 dark:text-gray-200">
+                QAT - QA Automation Testing Dashboard
+              </span>
+            </div>
+            <div className="flex space-x-6 mb-2 sm:mb-0">
+              <a href="#recent-crawls" className="text-sm text-gray-600 dark:text-gray-300 hover:text-indigo-600 dark:hover:text-indigo-400">Recent Crawls</a>
+              <a href="#ask-gemini" className="text-sm text-gray-600 dark:text-gray-300 hover:text-indigo-600 dark:hover:text-indigo-400">Ask Gemini</a>
+              <a href="#test-definitions" className="text-sm text-gray-600 dark:text-gray-300 hover:text-indigo-600 dark:hover:text-indigo-400">Test Definitions</a>
+              <a href="#information" className="text-sm text-gray-600 dark:text-gray-300 hover:text-indigo-600 dark:hover:text-indigo-400">Instructions & Info</a>
+            </div>
+            <div className="flex space-x-2">
+              <button
+                onClick={handleShare}
+                className="p-2 rounded-lg bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                aria-label="Share"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="currentColor">
+                  <path d="M240-40q-33 0-56.5-23.5T160-120v-440q0-33 23.5-56.5T240-640h120v80H240v440h480v-440H600v-80h120q33 0 56.5 23.5T800-560v440q0 33-23.5 56.5T720-40H240Zm200-280v-447l-64 64-56-57 160-160 160 160-56 57-64-64v447h-80Z"/>
                 </svg>
-              ) : (
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
-                </svg>
-              )}
-            </button>
+              </button>
+              <button
+                onClick={() => setIsDarkMode(!isDarkMode)}
+                className="p-2 rounded-lg bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                aria-label="Toggle dark mode"
+              >
+                {isDarkMode ? (
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+                  </svg>
+                ) : (
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+                  </svg>
+                )}
+              </button>
+            </div>
           </div>
 
           <div className="space-y-6">
@@ -640,6 +681,7 @@ export default function Dashboard() {
                       downloadCSV(headers, data, 'crawls_trended.csv');
                     }}
                     className="text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100"
+                    aria-label="Download CSV"
                   >
                     <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="currentColor">
                       <path d="M480-320 280-520l56-58 104 104v-326h80v326l104-104 56 58-200 200ZM240-160q-33 0-56.5-23.5T160-240v-120h80v120h480v-120h80v120q0 33-23.5 56.5T720-160H240Z"/>
@@ -665,20 +707,21 @@ export default function Dashboard() {
                       downloadCSV(headers, data, 'crawl_types.csv');
                     }}
                     className="text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100"
+                    aria-label="Download CSV"
                   >
                     <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="currentColor">
                       <path d="M480-320 280-520l56-58 104 104v-326h80v326l104-104 56 58-200 200ZM240-160q-33 0-56.5-23.5T160-240v-120h80v120h480v-120h80v120q0 33-23.5 56.5T720-160H240Z"/>
                     </svg>
                   </button>
                 </div>
-                <div style={{ height: '380px', width: '100%', maxWidth: '380px' }}>
+                <div style={{ height: '400px', width: '100%', maxWidth: '380px' }}>
                   <canvas ref={donutChartRef}></canvas>
                 </div>
               </div>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 mb-6 items-start">
-              <div className="lg:col-span-1">
+            <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 mb-6">
+              <div className="lg:col-span-1 h-[28rem]">
                 <FailingTestsChart
                   failedTests={activeIssuesTab === 'last' ? sortedRuns[0]?.failed_tests : trendedFailedTests}
                   isDarkMode={isDarkMode}
@@ -686,7 +729,7 @@ export default function Dashboard() {
                   setActiveIssuesTab={setActiveIssuesTab}
                 />
               </div>
-              <div className="lg:col-span-3 p-4 bg-white dark:bg-gray-800 rounded-xl shadow-lg">
+              <div id="recent-crawls" className="lg:col-span-3 p-4 bg-white dark:bg-gray-800 rounded-xl shadow-lg">
                 <div className="sticky top-0 bg-white dark:bg-gray-800 z-20 py-2 border-b border-gray-200 dark:border-gray-700">
                   <div className="flex justify-between items-center">
                     <h2 className="text-xl font-semibold text-gray-700 dark:text-gray-300">Recent Crawl Information</h2>
@@ -713,6 +756,7 @@ export default function Dashboard() {
                           downloadCSV(headers, data, 'recent_crawls.csv');
                         }}
                         className="text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100"
+                        aria-label="Download CSV"
                       >
                         <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="currentColor">
                           <path d="M480-320 280-520l56-58 104 104v-326h80v326l104-104 56 58-200 200ZM240-160q-33 0-56.5-23.5T160-240v-120h80v120h480v-120h80v120q0 33-23.5 56.5T720-160H240Z"/>
@@ -721,7 +765,7 @@ export default function Dashboard() {
                     </div>
                   </div>
                 </div>
-                <div className="max-h-[26rem] overflow-y-auto">
+                <div className="h-[23rem] overflow-y-auto">
                   {runsLoading && !runs.length ? (
                     <p className="text-gray-500 dark:text-gray-400 text-center py-4">Loading run data...</p>
                   ) : runsError ? (
@@ -729,117 +773,112 @@ export default function Dashboard() {
                   ) : displayedRuns.length === 0 && !runsLoading ? (
                     <p className="text-gray-500 dark:text-gray-400 text-center py-4">No crawl data available.</p>
                   ) : (
-                    <div>
-                      <table className="w-full text-left text-sm">
-                        <thead className="sticky top-0 bg-gray-100 dark:bg-gray-700 z-10">
-                          <tr>
-                            <th className="p-3 font-semibold text-gray-600 dark:text-gray-300">Crawl Name</th>
-                            <th className="p-3 font-semibold text-gray-600 dark:text-gray-300">Date & Time</th>
-                            <th className="p-3 font-semibold text-gray-600 dark:text-gray-300">Initiator</th>
-                            <th className="p-3 font-semibold text-gray-600 dark:text-gray-300 text-center">Passed</th>
-                            <th className="p-3 font-semibold text-gray-600 dark:text-gray-300 text-center">Failed</th>
-                            <th className="p-3 font-semibold text-gray-600 dark:text-gray-300">Output Artifacts</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {displayedRuns.map((run, index) => (
-                            <>
-                              <tr
-                                key={run.runId || `run-${index}`}
-                                className={`border-b border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors ${
-                                  index % 2 === 0 ? 'bg-white dark:bg-gray-800' : 'bg-gray-50 dark:bg-gray-800/60'
-                                }`}
-                              >
-                                <td className="p-3 whitespace-nowrap">{run.crawlName || 'N/A'}</td>
-                                <td className="p-3 whitespace-nowrap">
-                                  {new Date(run.date).toLocaleString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'America/Chicago' })}
-                                </td>
-                                <td className="p-3 whitespace-nowrap">{run.initiator || 'N/A'}</td>
-                                <td className="p-3 text-green-600 dark:text-green-400 font-medium text-center">{run.successCount || 0}</td>
-                                <td className="p-3 text-red-600 dark:text-red-400 font-medium text-center">{run.failureCount || 0}</td>
-                                <td className="p-3">
-                                  {run.hasArtifacts || run.screenshotPaths.length > 0 || run.videoPaths.length > 0 ? (
-                                    <div className="flex items-center space-x-2">
-                                      <a
-                                        href={`https://github.com/rsmedstad/qa-automation-tool/actions/runs/${run.runId}`}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="text-indigo-600 dark:text-indigo-400 hover:underline inline-flex items-center"
+                    <table className="w-full text-left text-sm">
+                      <thead className="sticky top-0 bg-gray-100 dark:bg-gray-700 z-10">
+                        <tr>
+                          <th className="p-3 font-semibold text-gray-600 dark:text-gray-300">Crawl Name</th>
+                          <th className="p-3 font-semibold text-gray-600 dark:text-gray-300">Date & Time</th>
+                          <th className="p-3 font-semibold text-gray-600 dark:text-gray-300">Initiator</th>
+                          <th className="p-3 font-semibold text-gray-600 dark:text-gray-300 text-center">Passed</th>
+                          <th className="p-3 font-semibold text-gray-600 dark:text-gray-300 text-center">Failed</th>
+                          <th className="p-3 font-semibold text-gray-600 dark:text-gray-300">Output Artifacts</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {displayedRuns.map((run, index) => (
+                          <React.Fragment key={run.runId || `run-${index}`}>
+                            <tr
+                              className={`border-b border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors ${
+                                index % 2 === 0 ? 'bg-white dark:bg-gray-800' : 'bg-gray-50 dark:bg-gray-800/60'
+                              }`}
+                            >
+                              <td className="p-3 whitespace-nowrap">{run.crawlName || 'N/A'}</td>
+                              <td className="p-3 whitespace-nowrap">
+                                {new Date(run.date).toLocaleString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'America/Chicago' })}
+                              </td>
+                              <td className="p-3 whitespace-nowrap">{run.initiator || 'N/A'}</td>
+                              <td className="p-3 text-green-600 dark:text-green-400 font-medium text-center">{run.successCount || 0}</td>
+                              <td className="p-3 text-red-600 dark:text-red-400 font-medium text-center">{run.failureCount || 0}</td>
+                              <td className="p-3">
+                                {run.hasArtifacts || run.screenshotPaths.length > 0 || run.videoPaths.length > 0 ? (
+                                  <div className="flex items-center space-x-2">
+                                    <a
+                                      href={`https://github.com/rsmedstad/qa-automation-tool/actions/runs/${run.runId}`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-indigo-600 dark:text-indigo-400 hover:underline inline-flex items-center"
+                                    >
+                                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                                      </svg>
+                                      View Actions ({run.artifactCount || 0})
+                                    </a>
+                                    {(run.screenshotPaths.length > 0 || run.videoPaths.length > 0) && (
+                                      <button
+                                        onClick={() =>
+                                          setExpandedRuns((prev) =>
+                                            prev.includes(run.runId)
+                                              ? prev.filter((id) => id !== run.runId)
+                                              : [...prev, run.runId]
+                                          )
+                                        }
+                                        className="text-blue-500 hover:underline text-sm"
                                       >
-                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                                          <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                                        </svg>
-                                        View Actions ({run.artifactCount || 0})
-                                      </a>
-                                      {(run.screenshotPaths.length > 0 || run.videoPaths.length > 0) && (
-                                        <button
-                                          onClick={() =>
-                                            setExpandedRuns((prev) =>
-                                              prev.includes(run.runId)
-                                                ? prev.filter((id) => id !== run.runId)
-                                                : [...prev, run.runId]
-                                            )
-                                          }
+                                        {expandedRuns.includes(run.runId) ? 'Hide' : 'Show'} Artifacts (
+                                        {run.screenshotPaths.length + run.videoPaths.length})
+                                      </button>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <span className="text-gray-500 dark:text-gray-400">None</span>
+                                )}
+                              </td>
+                            </tr>
+                            {expandedRuns.includes(run.runId) && (
+                              <tr>
+                                <td colSpan="6" className="p-3 bg-gray-100 dark:bg-gray-700">
+                                  <div className="flex flex-wrap gap-2">
+                                    {[
+                                      ...run.screenshotPaths.map((url, idx) => (
+                                        <a
+                                          key={`screenshot-${idx}`}
+                                          href={url}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
                                           className="text-blue-500 hover:underline text-sm"
                                         >
-                                          {expandedRuns.includes(run.runId) ? 'Hide' : 'Show'} Artifacts (
-                                          {run.screenshotPaths.length + run.videoPaths.length})
-                                        </button>
-                                      )}
-                                    </div>
-                                  ) : (
-                                    <span className="text-gray-500 dark:text-gray-400">None</span>
-                                  )}
+                                          Screenshot {idx + 1}
+                                        </a>
+                                      )),
+                                      ...run.videoPaths.map((url, idx) => (
+                                        <a
+                                          key={`video-${idx}`}
+                                          href={url}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="text-blue-500 hover:underline text-sm"
+                                        >
+                                          Video {idx + 1}
+                                        </a>
+                                      )),
+                                    ]}
+                                  </div>
                                 </td>
                               </tr>
-                              {expandedRuns.includes(run.runId) && (
-                                <tr>
-                                  <td colSpan="6" className="p-3 bg-gray-100 dark:bg-gray-700">
-                                    <div className="flex flex-wrap gap-2">
-                                      {[
-                                        ...run.screenshotPaths.map((url, idx) => (
-                                          <a
-                                            key={`screenshot-${idx}`}
-                                            href={url}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="text-blue-500 hover:underline text-sm"
-                                          >
-                                            Screenshot {idx + 1}
-                                          </a>
-                                        )),
-                                        ...run.videoPaths.map((url, idx) => (
-                                          <a
-                                            key={`video-${idx}`}
-                                            href={url}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="text-blue-500 hover:underline text-sm"
-                                          >
-                                            Video {idx + 1}
-                                          </a>
-                                        )),
-                                      ].map((elem, i) => (
-                                        <React.Fragment key={i}>{elem}</React.Fragment>
-                                      ))}
-                                    </div>
-                                  </td>
-                                </tr>
-                              )}
-                            </>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
+                            )}
+                          </React.Fragment>
+                        ))}
+                      </tbody>
+                    </table>
                   )}
                 </div>
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="p-4 sm:p-6 bg-white dark:bg-gray-800 rounded-xl shadow-lg">
+            <div className="grid grid-cols-1 md:grid-cols-8 gap-6">
+              <div className="md:col-span-3 p-4 sm:p-6 bg-white dark:bg-gray-800 rounded-xl shadow-lg flex flex-col h-[500px]">
                 <h2 className="text-xl font-semibold mb-4 text-gray-700 dark:text-gray-300">Request Ad-Hoc Crawl</h2>
-                <form onSubmit={handleTestSubmit} className="space-y-4">
+                <form onSubmit={handleTestSubmit} className="flex flex-col flex-grow space-y-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" htmlFor="initiator">
                       Your Name
@@ -889,7 +928,7 @@ export default function Dashboard() {
                       Capture Video for Failed URLs
                     </label>
                   </div>
-                  <div className="flex items-center justify-between space-x-4">
+                  <div className bénéfice="mt-auto flex items-center justify-between space-x-4">
                     <div className="flex-1">
                       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" htmlFor="file">
                         Select input.xlsx
@@ -900,13 +939,13 @@ export default function Dashboard() {
                         name="file"
                         accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                         disabled={testType === 'standard'}
-                        className="w-full text-sm text-gray-500 dark:text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 dark:file:bg-indigo-800 file:text-indigo-700 dark:file:text-indigo-300 hover:file:bg-indigo-100 dark:hover:file:bg-indigo-700 cursor-pointer disabled:opacity-50"
+                        className="w-full text-sm text-gray-500 dark:text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-500 dark:file:bg-blue-600 file:text-white hover:file:bg-blue-600 dark:hover:file:bg-blue-700 cursor-pointer disabled:opacity-50"
                       />
                     </div>
                     <button
                       type="submit"
                       disabled={submissionStatus === 'loading'}
-                      className="px-5 py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800 disabled:opacity-60 self-end"
+                      className="px-5 py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800 disabled:opacity-60"
                     >
                       {submissionStatus === 'loading' ? 'Submitting...' : 'Run Test'}
                     </button>
@@ -919,7 +958,7 @@ export default function Dashboard() {
                 )}
               </div>
 
-              <div className="p-4 sm:p-6 bg-white dark:bg-gray-800 rounded-xl shadow-lg flex flex-col h-[500px]">
+              <div id="ask-gemini" className="md:col-span-5 p-4 sm:p-6 bg-white dark:bg-gray-800 rounded-xl shadow-lg flex flex-col h-[500px]">
                 <div className="flex items-center mb-4">
                   <img
                     src="https://www.gstatic.com/lamda/images/gemini_sparkle_v002_d4735304ff6292a690345.svg"
@@ -1008,7 +1047,7 @@ export default function Dashboard() {
               </div>
             </div>
 
-            <div className="p-4 bg-white dark:bg-gray-800 rounded-xl shadow-lg mb-6">
+            <div id="test-definitions" className="p-4 bg-white dark:bg-gray-800 rounded-xl shadow-lg mb-6">
               <div className="flex justify-between items-center mb-3">
                 <h2 className="text-xl font-semibold text-gray-700 dark:text-gray-300">Test Definitions & Protocol</h2>
                 <button
@@ -1034,6 +1073,7 @@ export default function Dashboard() {
                     }
                   }}
                   className="text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100"
+                  aria-label="Download CSV"
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="currentColor">
                     <path d="M480-320 280-520l56-58 104 104v-326h80v326l104-104 56 58-200 200ZM240-160q-33 0-56.5-23.5T160-240v-120h80v120h480v-120h80v120q0 33-23.5 56.5T720-160H240Z"/>
@@ -1049,7 +1089,7 @@ export default function Dashboard() {
                 </button>
                 <button
                   onClick={() => setActiveTab('sfTests')}
-                  className={`px-4 py-2 rounded-lg ${activeTab === 'sfTests' ? 'bg-indigo-600 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'}`}
+                  className={`px-4 py-2 rounded-lg ${activeTab === 'sfTests' ? 'bg-indigo-600 text-white' : 'bg-gray-200 dark:bg-gray-700 text-grey-700 dark:text-gray-300'}`}
                 >
                   Screaming Frog
                 </button>
@@ -1068,12 +1108,12 @@ export default function Dashboard() {
                     </thead>
                     <tbody>
                       {testDefinitions.length > 0 ? (
-                        testDefinitions.map((def) => (
+                        testDefinitions.sort(sortByTestId).map((def) => (
                           <tr key={def.test_id} className="border-b border-gray-200 dark:border-gray-700">
                             <td className="p-3">{def.test_id}</td>
                             <td className="p-3">{def.title}</td>
                             <td className="p-3">{def.description}</td>
-                            <td className="p-3">{def.test_method}</td>
+                            <td className="p-3 whitespace-normal break-words">{def.test_method}</td>
                           </tr>
                         ))
                       ) : (
@@ -1099,12 +1139,12 @@ export default function Dashboard() {
                     </thead>
                     <tbody>
                       {sfTests.length > 0 ? (
-                        sfTests.map((test) => (
+                        sfTests.sort(sortByTestId).map((test) => (
                           <tr key={test.test_id} className="border-b border-gray-200 dark:border-gray-700">
                             <td className="p-3">{test.test_id}</td>
                             <td className="p-3">{test.title || 'N/A'}</td>
                             <td className="p-3">{test.screamingfrog_feature}</td>
-                            <td className="p-3">{test.screamingfrog_method}</td>
+                            <td className="p-3 whitespace-normal break-words">{test.screamingfrog_method}</td>
                           </tr>
                         ))
                       ) : (
@@ -1117,9 +1157,89 @@ export default function Dashboard() {
                 </div>
               )}
             </div>
+
+            <div id="information" className="p-4 bg-white dark:bg-gray-800 rounded-xl shadow-lg mb-6">
+              <h2 className="text-xl font-semibold text-gray-700 dark:text-gray-300 mb-4">Information</h2>
+              <div className="flex space-x-4 mb-4">
+                <button
+                  onClick={() => setActiveInfoTab('about')}
+                  className={`px-4 py-2 rounded-lg ${activeInfoTab === 'about' ? 'bg-indigo-600 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'}`}
+                >
+                  About
+                </button>
+                <button
+                  onClick={() => setActiveInfoTab('instructions')}
+                  className={`px-4 py-2 rounded-lg ${activeInfoTab === 'instructions' ? 'bg-indigo-600 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'}`}
+                >
+                  Instructions
+                </button>
+              </div>
+              <div className="min-h-[640px]">
+                {activeInfoTab === 'about' && (
+                  <div className="prose dark:prose-invert max-w-none">
+                    <h3>Description</h3>
+                    <p>
+                      The QA Automation Tool simplifies web application quality assurance by automating a suite of predefined tests on specified URLs. It ensures websites meet high standards by checking elements like page structure, functionality, and performance. The dashboard serves as a central hub, offering real-time insights into test results, visual trends, and the ability to launch tests on demand—empowering teams to maintain excellence effortlessly.
+                    </p>
+                    <h3>Technology Stack</h3>
+                    <ul>
+                      <li><strong>Node.js & Next.js</strong>: Powers the backend logic and responsive frontend.</li>
+                      <li><strong>Playwright</strong>: Drives robust browser automation for reliable testing.</li>
+                      <li><strong>Supabase</strong>: Manages test data and results with a scalable database.</li>
+                      <li><strong>Vercel</strong>: Hosts the app and stores artifacts like screenshots and videos.</li>
+                      <li><strong>GitHub Actions</strong>: Automates testing workflows for consistency and efficiency.</li>
+                      <li><strong>ExcelJS</strong>: Processes input and output data in familiar Excel formats.</li>
+                      <li><strong>Chart.js</strong>: Visualizes test trends with clear, interactive charts.</li>
+                      <li><strong>Gemini & LangChain</strong>: Enable natural language queries with AI-driven insights.</li>
+                    </ul>
+                    <h3>Author Information</h3>
+                    <p>
+                      Made by: Ryan Smedstad<br />
+                      GitHub: <a href="https://github.com/rsmedstad" target="_blank" rel="noopener noreferrer">rsmedstad</a><br />
+                      Project Repo: <a href="https://github.com/rsmedstad/qa-automation-tool" target="_blank" rel="noopener noreferrer">qa-automation-tool</a>
+                    </p>
+                  </div>
+                )}
+                {activeInfoTab === 'instructions' && (
+                  <div className="prose dark:prose-invert max-w-none">
+                    <h3>Instructions</h3>
+                    <h4>Using the Dashboard</h4>
+                    <ul>
+                      <li><strong>Reading the Dashboard</strong>: View recent test runs with summaries of passed, failed, and N/A results. Charts highlight trends and pinpoint issues at a glance.</li>
+                      <li><strong>Ask Gemini Feature</strong>: Query test results or seek insights using natural language—unlock this with a passphrase for smart, AI-driven answers.</li>
+                      <li><strong>Scheduled vs. Ad-hoc Crawls</strong>: Scheduled tests run automatically every three hours, while ad-hoc tests let you test immediately as needed.</li>
+                      <li><strong>How to Run an Ad-hoc Crawl</strong>: In the "Request Ad-Hoc Crawl" section, enter your name, passphrase, and optionally upload a custom <a href="https://github.com/rsmedstad/qa-automation-tool/raw/225b4193b5f7ecce8813334f3c7763dfc27a0b5a/input.xlsx" target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">input.xlsx</a> file. Click "Run Test" to start.</li>
+                      <li><strong>Getting Test Run Details via GitHub Actions & Artifacts</strong>: Each test generates artifacts (e.g., results-run_id.xlsx, screenshots, videos for failures). These can be accessed from the Recent Crawl Information table or via GitHub Actions:
+                        <ol>
+                          <li>Go to <a href="https://github.com/rsmedstad/qa-automation-tool/actions" target="_blank" rel="noopener noreferrer">github.com/rsmedstad/qa-automation-tool/actions</a>.</li>
+                          <li>Select a run, scroll to "Artifacts," and download files like results or media.</li>
+                        </ol>
+                      </li>
+                    </ul>
+                    <h4>How to Test Manually with Screaming Frog</h4>
+                    <ul>
+                      <li>See the "Screaming Frog" tab in "Test Definitions & Protocol" for steps to replicate tests manually.</li>
+                    </ul>
+                    <h4>Contact</h4>
+                    <ul>
+                      <li>For questions or feedback, reach out to Ryan Smedstad.</li>
+                    </ul>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         </main>
-        <footer className="text-center py-6 text-xs text-gray-500 dark:text-gray-400 border-t border-gray-200 dark:border-gray-700 mt-10"></footer>
+        <footer className="text-center py-1 text-xs text-gray-500 dark:text-gray-300 ">
+          <p className="flex items-center justify-center gap-2">
+            <a href="https://github.com/rsmedstad" target="_blank" rel="noopener noreferrer" className="inline-flex items-center hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors" aria-label="Ryan Smedstad's GitHub Profile">
+              Developed by Ryan Smedstad 
+              <svg className="w-6 h-6 github-icon" viewBox="0 0 17 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path fillRule="evenodd" clipRule="evenodd" d="M8.5 2.22168C5.23312 2.22168 2.58496 4.87398 2.58496 8.14677C2.58496 10.7642 4.27962 12.9853 6.63026 13.7684C6.92601 13.8228 7.03366 13.6401 7.03366 13.4827C7.03366 13.3425 7.02893 12.9693 7.02597 12.4754C5.38041 12.8333 5.0332 11.681 5.0332 11.681C4.76465 10.996 4.37663 10.8139 4.37663 10.8139C3.83954 10.4471 4.41744 10.4542 4.41744 10.4542C5.01072 10.4956 5.32303 11.0647 5.32303 11.0647C5.85065 11.9697 6.70774 11.7082 7.04431 11.5568C7.09873 11.1741 7.25134 10.9132 7.42051 10.7654C6.10737 10.6157 4.72621 10.107 4.72621 7.83683C4.72621 7.19031 4.95689 6.66092 5.33486 6.24686C5.27394 6.09721 5.07105 5.49447 5.39283 4.67938C5.39283 4.67938 5.88969 4.51967 7.01947 5.28626C7.502 5.15466 7.99985 5.08763 8.5 5.08692C9.00278 5.08929 9.50851 5.15495 9.98113 5.28626C11.1103 4.51967 11.606 4.67879 11.606 4.67879C11.9289 5.49447 11.7255 6.09721 11.6651 6.24686C12.0437 6.66092 12.2732 7.19031 12.2732 7.83683C12.2732 10.1129 10.8897 10.6139 9.5724 10.7606C9.78475 10.9434 9.97344 11.3048 9.97344 11.8579C9.97344 12.6493 9.96634 13.2887 9.96634 13.4827C9.96634 13.6413 10.0728 13.8258 10.3733 13.7678C12.7239 12.9837 14.415 10.7633 14.415 8.14677C14.415 4.87398 11.7663 2.22168 8.5 2.22168Z" fill="currentColor"/>
+              </svg>
+            </a>
+          </p>
+        </footer>
       </div>
     </>
   );
