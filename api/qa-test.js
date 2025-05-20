@@ -20,7 +20,6 @@
   • Added survey handling mechanisms to block and dismiss survey pop-ups
 ──────────────────────────────────────────────────────────────────────────────*/
 
-import os from 'os';
 import ExcelJS from 'exceljs';
 import { chromium } from 'playwright';
 import fs from 'fs';
@@ -30,6 +29,7 @@ import { put } from '@vercel/blob';
 import fetch from 'node-fetch';
 import pTimeout from 'p-timeout';
 import { v4 as uuidv4 } from 'uuid';
+import { createLogger, transports, format } from 'winston';
 
 // Load environment variables from .env file
 import 'dotenv/config';
@@ -48,45 +48,79 @@ process.on('uncaughtException', (err) => {
 // Initialize Supabase client for storing test results
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 
+// Initialize logger with Winston for structured logging
+const logger = createLogger({
+  level: 'info',
+  format: format.combine(format.timestamp(), format.json()),
+  transports: [
+    new transports.Console(),
+    new transports.File({ filename: 'qa-test.log' })
+  ],
+});
+
+// Constants for configuration
+const DEFAULT_TIMEOUT = 10000;
+const NAVIGATION_TIMEOUT = 45000;
+const SCREENSHOT_DIR = 'screenshots';
+const VIDEO_DIR = 'videos';
+const DEBUG_DIR = 'debug_logs';
+const BLOCKED_RESOURCES = [
+  'gtm.js',
+  'analytics.js',
+  '.woff',
+  '.woff2',
+  'qualtrics.com',
+  'qualified.com',
+  'survey',
+  'feedback',
+  'msecnd.net/survey',
+  'siteintercept'
+];
+const DEFAULT_VIEWPORT = { width: 1920, height: 1080 };
+const MOBILE_VIEWPORT = { width: 375, height: 667 };
+const HTTP_REDIRECT = [301, 302];
+const CONCURRENCY = 3;
+const BATCH_DELAY = 2000;
+
 // Main execution wrapped in an IIFE for async handling
 (async () => {
   try {
-    console.log('Starting QA test script');
+    logger.info('Starting QA test script');
     const [,, inputFile, outputFile, initiatedBy] = process.argv;
     const captureVideo = process.argv[5] ? process.argv[5].toLowerCase() === 'true' : false;
 
     // Validate command-line arguments
     if (!inputFile || !outputFile || !initiatedBy) {
-      console.error('Usage: node api/qa-test.js <input.xlsx> <output.xlsx> <Initiated By> [captureVideo=false]');
+      logger.error('Usage: node api/qa-test.js <input.xlsx> <output.xlsx> <Initiated By> [captureVideo=false]');
       process.exit(1);
     }
 
-    console.log(`\n▶ Workbook  : ${inputFile}`);
-    console.log(`▶ Output    : ${outputFile}`);
-    console.log(`▶ Initiated : ${initiatedBy}`);
-    console.log(`▶ Capture Video: ${captureVideo}\n`);
+    logger.info(`\n▶ Workbook  : ${inputFile}`);
+    logger.info(`▶ Output    : ${outputFile}`);
+    logger.info(`▶ Initiated : ${initiatedBy}`);
+    logger.info(`▶ Capture Video: ${captureVideo}\n`);
 
     // Read Excel input file containing URLs and test data
-    console.log('Reading URLs and data from Excel file...');
+    logger.info('Reading URLs and data from Excel file...');
     const inputWorkbook = new ExcelJS.Workbook();
     await inputWorkbook.xlsx.readFile(inputFile);
 
     const urlSheet = inputWorkbook.getWorksheet('URLs');
     if (!urlSheet) {
-      console.error('Sheet "URLs" not found in input.xlsx.');
+      logger.error('Sheet "URLs" not found in input.xlsx.');
       process.exit(1);
     }
 
     const headerRow = urlSheet.getRow(1);
     const headers = headerRow.values.map(h => h ? h.toString().trim().toLowerCase() : '').filter(Boolean);
-    console.log('Headers detected:', headers);
+    logger.info('Headers detected:', headers);
 
     const urlIndex = headers.indexOf('url');
     const testIdsIndex = headers.indexOf('test ids');
     const regionIndex = headers.indexOf('region');
 
     if (urlIndex === -1 || testIdsIndex === -1) {
-      console.error('Required columns "URL" or "Test IDs" not found in URLs sheet.');
+      logger.error('Required columns "URL" or "Test IDs" not found in URLs sheet.');
       process.exit(1);
     }
 
@@ -111,7 +145,7 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
     }));
 
     if (!urls.length) {
-      console.error('No URLs found.');
+      logger.error('No URLs found.');
       process.exit(1);
     }
 
@@ -140,10 +174,10 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
         note: 'QA test run initiated via script'
       });
     if (testRunError) {
-      console.error('Error creating test run:', testRunError.message || testRunError);
+      logger.error('Error creating test run:', testRunError.message || testRunError);
       process.exit(1);
     }
-    console.log(`Test Run created with ID: ${runId}`);
+    logger.info(`Test Run created with ID: ${runId}`);
 
     // Initialize crawl progress in Supabase
     const totalUrls = urls.length;
@@ -159,45 +193,30 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
         status_summary: 'Your test has started.'
       });
     if (progressError) {
-      console.error('Error creating crawl progress:', progressError.message || progressError);
+      logger.error('Error creating crawl progress:', progressError.message || progressError);
     }
 
     // Set up directories for screenshots, videos, and debug logs
-    const screenshotDir = 'screenshots';
-    const videoDir = 'videos';
-    const debugDir = 'debug_logs';
-    if (!fs.existsSync(screenshotDir)) fs.mkdirSync(screenshotDir);
-    if (!fs.existsSync(videoDir)) fs.mkdirSync(videoDir);
-    if (!fs.existsSync(debugDir)) fs.mkdirSync(debugDir);
+    if (!fs.existsSync(SCREENSHOT_DIR)) fs.mkdirSync(SCREENSHOT_DIR);
+    if (!fs.existsSync(VIDEO_DIR)) fs.mkdirSync(VIDEO_DIR);
+    if (!fs.existsSync(DEBUG_DIR)) fs.mkdirSync(DEBUG_DIR);
 
     // Launch Playwright browser for testing
     const browser = await chromium.launch();
     const defaultContextOptions = { 
-      viewport: { width: 1920, height: 1080 } // Default to larger viewport
+      viewport: DEFAULT_VIEWPORT // Default to larger viewport
     };
     const context = await browser.newContext(defaultContextOptions);
 
-    // Set default timeouts: 10s for elements, 45s for navigation
-    context.setDefaultTimeout(10000);
-    context.setDefaultNavigationTimeout(45000);
+    // Set default timeouts
+    context.setDefaultTimeout(DEFAULT_TIMEOUT);
+    context.setDefaultNavigationTimeout(NAVIGATION_TIMEOUT);
 
     // Block non-essential resources to optimize performance and prevent survey pop-ups
     await context.route('**/*', route => {
       const url = route.request().url();
-      const blocked = [
-        'gtm.js',           // Google Tag Manager
-        'analytics.js',     // Google Analytics
-        '.woff',            // Font files
-        '.woff2',           // Font files
-        'qualtrics.com',    // Qualtrics survey platform
-        'qualified.com',    // Qualified chat platform
-        'survey',           // General survey-related requests
-        'feedback',         // Feedback-related requests
-        'msecnd.net/survey', // Specific survey domain
-        'siteintercept'     // Site intercept scripts
-      ];
-      if (blocked.some(substring => url.includes(substring))) {
-        console.log(`Blocked: ${url}`);
+      if (BLOCKED_RESOURCES.some(substring => url.includes(substring))) {
+        logger.info(`Blocked: ${url}`);
         return route.abort();
       }
       return route.continue();
@@ -213,9 +232,15 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
             if (node.nodeType === 1) {
               const txt = (node.innerText || '').toLowerCase();
               if (keywords.some(k => txt.includes(k)) || 
-                  keywords.some(k => node.id?.toLowerCase().includes(k)) || 
-                  (node.tagName === 'IFRAME' && node.getAttribute('name')?.includes('survey'))) {
+                  keywords.some(k => node.id?.toLowerCase().includes(k))) {
                 hide(node);
+              } else if (node.tagName === 'IFRAME' && node.getAttribute('name')?.includes('survey')) {
+                const dialog = node.closest('[role="dialog"]');
+                if (dialog) {
+                  hide(dialog);
+                } else {
+                  hide(node);
+                }
               }
             }
           });
@@ -223,11 +248,9 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
       }).observe(document.documentElement, { childList: true, subtree: true });
     });
 
-    const HTTP_REDIRECT = [301, 302];
-
     /* Helper Functions */
 
-    // Scroll page to find elements, returns first matching selector
+    // Scroll page to find elements and return the first matching selector
     async function scrollAndFind(page, selectors, maxScreens = 5) {
       const viewH = await page.evaluate(() => window.innerHeight);
       for (let pass = 0; pass < maxScreens; pass++) {
@@ -253,25 +276,24 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
     async function logPageDom(page, url, testId) {
       try {
         const safeUrl = url.replace(/[^a-zA-Z0-9_-]/g, '_');
-        const debugFile = path.join(debugDir, `${safeUrl}-${testId}-dom.html`);
+        const debugFile = path.join(DEBUG_DIR, `${safeUrl}-${testId}-dom.html`);
         const html = await page.evaluate(() => document.documentElement.outerHTML);
         fs.writeFileSync(debugFile, html);
-        console.log(`   Debug DOM saved to ${debugFile}`);
+        logger.info(`   Debug DOM saved to ${debugFile}`);
       } catch (err) {
-        console.error(`   Failed to save debug DOM for ${testId}: ${err.message}`);
+        logger.error(`   Failed to save debug DOM for ${testId}: ${err.message}`);
       }
     }
 
-    // Upload file to Vercel Blob with retry mechanism
+    // Upload file to Vercel Blob with retry mechanism and enhanced error handling
     async function uploadFile(filePath, destPath, retries = 3) {
       if (!process.env.BLOB_READ_WRITE_TOKEN) {
-        console.error('BLOB_READ_WRITE_TOKEN is not set in the environment.');
-        return null;
+        throw new Error('BLOB_READ_WRITE_TOKEN is not set in the environment');
       }
       if (!fs.existsSync(filePath)) {
-        console.error(`File not found for upload: ${filePath}`);
-        return null;
+        throw new Error(`File not found for upload: ${filePath}`);
       }
+      let lastError;
       for (let attempt = 1; attempt <= retries; attempt++) {
         try {
           const fileBuffer = fs.readFileSync(filePath);
@@ -281,38 +303,38 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
             allowOverwrite: true,
           });
           fs.unlinkSync(filePath);
-          console.log(`Uploaded ${destPath} to Vercel Blob: ${blob.url}`);
+          logger.info(`Uploaded ${destPath} to Vercel Blob: ${blob.url}`);
           return blob.url;
         } catch (error) {
+          lastError = error;
           if (attempt < retries) {
-            console.warn(`Attempt ${attempt} failed to upload ${filePath}: ${error.message}. Retrying...`);
+            logger.warn(`Attempt ${attempt} failed to upload ${filePath}: ${error.message}. Retrying...`);
             await new Promise(resolve => setTimeout(resolve, 2000));
-          } else {
-            console.error(`Failed to upload ${filePath} after ${retries} attempts: ${error.message}`);
-            return null;
           }
         }
       }
+      throw new Error(`Failed to upload ${filePath} after ${retries} attempts: ${lastError.message}`);
     }
 
-    // Delete file with retry mechanism, continue if it fails
+    // Delete file with retry mechanism and enhanced error handling
     async function deleteFile(filePath, retries = 3) {
+      let lastError;
       for (let attempt = 1; attempt <= retries; attempt++) {
         try {
           if (fs.existsSync(filePath)) {
             fs.unlinkSync(filePath);
-            console.log(`Deleted file: ${filePath}`);
+            logger.info(`Deleted file: ${filePath}`);
           }
           return;
         } catch (error) {
+          lastError = error;
           if (attempt < retries) {
-            console.warn(`Attempt ${attempt} failed to delete ${filePath}: ${error.message}. Retrying...`);
+            logger.warn(`Attempt ${attempt} failed to delete ${filePath}: ${error.message}. Retrying...`);
             await new Promise(resolve => setTimeout(resolve, 2000));
-          } else {
-            console.error(`Failed to delete ${filePath} after ${retries} attempts: ${error.message}. Continuing...`);
           }
         }
       }
+      logger.error(`Failed to delete ${filePath} after ${retries} attempts: ${lastError.message}. Continuing...`);
     }
 
     // Update crawl progress in Supabase with ETA
@@ -337,7 +359,7 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
         })
         .eq('run_id', runId);
 
-      if (error) console.error('Error updating crawl progress:', error.message || error);
+      if (error) logger.error('Error updating crawl progress:', error.message || error);
     }
 
     // Insert test result into Supabase
@@ -354,7 +376,7 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
           screenshot_path: screenshotUrl,
           video_path: videoUrl
         });
-      if (error) console.error(`Error inserting test result for ${testId} on ${url}:`, error.message || error);
+      if (error) logger.error(`Error inserting test result for ${testId} on ${url}:`, error.message || error);
     }
 
     // Handle Gatekeeper interstitial if present
@@ -364,24 +386,24 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
       let gatekeeperDetected = false;
       try {
         for (const selector of gatekeeperSelectors) {
-          const gatekeeper = await page.waitForSelector(selector, { timeout: 10000 });
+          const gatekeeper = await page.waitForSelector(selector, { timeout: DEFAULT_TIMEOUT });
           if (gatekeeper) {
             gatekeeperDetected = true;
-            console.log(`   Gatekeeper detected with selector: ${selector}`);
+            logger.info(`   Gatekeeper detected with selector: ${selector}`);
             const yesButton = await page.waitForSelector(yesButtonSelector, { timeout: 3000 });
             if (yesButton) {
               await yesButton.click();
-              console.log('   Clicked "Yes" on gatekeeper');
-              await page.waitForLoadState('domcontentloaded', { timeout: 30000 });
-              console.log('   Navigated after gatekeeper');
+              logger.info('   Clicked "Yes" on gatekeeper');
+              await page.waitForLoadState('domcontentloaded', { timeout: NAVIGATION_TIMEOUT });
+              logger.info('   Navigated after gatekeeper');
             }
             break;
           }
         }
       } catch (error) {
-        console.log('   No gatekeeper found or error handling:', error.message);
+        logger.info('   No gatekeeper found or error handling:', error.message);
       }
-      console.log(`   Gatekeeper detection result: ${gatekeeperDetected}`);
+      logger.info(`   Gatekeeper detection result: ${gatekeeperDetected}`);
       return gatekeeperDetected;
     }
 
@@ -397,57 +419,72 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
       const buttonKeywords = ['accept', 'agree', 'ok', 'allow', 'confirm', 'dismiss', 'got it', 'understand', 'close', 'confirmer'];
 
       try {
-        console.log('   Checking for overlays (cookie banners or interstitials)...');
-        const overlay = await page.waitForSelector(overlaySelectors.join(', '), { timeout: 2000 });
-        if (overlay) {
-          console.log('   Overlay detected');
-          const buttons = await overlay.$$('button, [role="button"], a');
-          for (const button of buttons) {
-            const text = (await button.textContent()).toLowerCase();
-            if (buttonKeywords.some(keyword => text.includes(keyword))) {
-              console.log(`   Clicking overlay button: ${text}`);
-              await button.click();
-              await page.waitForTimeout(1000);
-              console.log('   Overlay dismissed');
-              return true;
+        logger.info('   Checking for overlays (cookie banners or interstitials)...');
+        const cookieBanner = await page.$('#_evidon_banner');
+        if (cookieBanner && await cookieBanner.isVisible()) {
+          logger.info('   Specific clearfix');
+          const declineButton = await page.$('#_evidon-decline-button');
+          if (declineButton) {
+            await declineButton.click();
+            logger.info('   Clicked "Allow necessary only" on cookie banner');
+            try {
+              await page.waitForFunction(() => !document.querySelector('#_evidon_banner'), { timeout: 5000 });
+            } catch (e) {
+              logger.info('   Banner did not disappear, hiding via JavaScript');
+              await page.evaluate(() => {
+                const banner = document.querySelector('#_evidon_banner');
+                if (banner) banner.style.display = 'none';
+              });
             }
+          } else {
+            logger.info('   "Allow necessary only" button not found, hiding banner via JavaScript');
+            await page.evaluate(() => {
+              const banner = document.querySelector('#_evidon_banner');
+              if (banner) banner.style.display = 'none';
+            });
           }
-          console.log('   No dismiss button found, relying on init script to hide overlay');
-          return true;
         } else {
-          console.log('   No overlay detected within timeout');
+          const overlay = await page.waitForSelector(overlaySelectors.join(', '), { timeout: 5000 });
+          if (overlay) {
+            logger.info('   General overlay detected');
+            const buttons = await overlay.$$('button, [role="button"], a');
+            for (const button of buttons) {
+              const text = (await button.textContent()).toLowerCase();
+              if (buttonKeywords.some(keyword => text.includes(keyword))) {
+                logger.info(`   Clicking overlay button: ${text}`);
+                await button.click();
+                await page.waitForTimeout(1000);
+                logger.info('   Overlay dismissed');
+                return true;
+              }
+            }
+            logger.info('   No dismiss button found, relying on init script to hide overlay');
+            return true;
+          } else {
+            logger.info('   No overlay detected within timeout');
+          }
         }
       } catch (error) {
-        console.log('   No overlay found or error handling:', error.message);
+        logger.info('   No overlay found or error handling:', error.message);
       }
       return false;
     }
 
     // Handle survey pop-up if present
     async function handleSurvey(page) {
-      const surveySelectors = [
-        'iframe[name*="survey"]',           // Targets survey iframe by name attribute
-        'iframe[id="cs-native-frame"]',     // Targets specific survey iframe by ID
-        '.survey',                          // Generic survey class
-        '.modal-survey',                    // Modal survey class
-        '[id*="survey"]',                   // Elements with survey in ID
-        'button[aria-label="Close"]',       // Close button by aria-label
-        'button[class*="dismiss"]'          // Dismiss buttons by class
-      ];
+      const surveyContainerSelector = 'div.QSIWebResponsive';
+      const closeButtonSelector = `${surveyContainerSelector} button[aria-label="Close"]`;
 
-      for (const selector of surveySelectors) {
-        try {
-          const element = await page.waitForSelector(selector, { timeout: 2000 });
-          if (element) {
-            await element.click();
-            console.log(`   Survey dismissed using selector: ${selector}`);
-            return true;
-          }
-        } catch (e) {
-          // Ignore and continue to the next selector
+      try {
+        const closeButton = await page.waitForSelector(closeButtonSelector, { timeout: 2000 });
+        if (closeButton) {
+          await closeButton.click();
+          logger.info('   Survey dismissed by clicking close button');
+          return true;
         }
+      } catch (e) {
+        logger.info('   No survey pop-up found or unable to dismiss');
       }
-      console.log('   No survey pop-up found or unable to dismiss');
       return false;
     }
 
@@ -459,12 +496,12 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
       const url = urlData.url;
       const testIds = urlData.testIds;
       const region = urlData.data.region;
-      console.log(`[${idx + 1}/${urls.length}] ${url}`);
+      logger.info(`[${idx + 1}/${urls.length}] ${url}`);
       const t0 = Date.now();
 
       // Validate URL format
       if (!url || !/^https?:\/\//.test(url)) {
-        console.log(`Invalid URL: ${url}`);
+        logger.warn(`Invalid URL: ${url}`);
         results[idx]['HTTP Status'] = 'Invalid URL';
         for (const id of testIds) {
           results[idx][id] = 'NA';
@@ -480,24 +517,12 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
       // Use a fresh context for TC-10 and TC-12 to simulate incognito mode
       if (testIds.includes('TC-10') || testIds.includes('TC-12')) {
         contextToUse = await browser.newContext(defaultContextOptions);
-        contextToUse.setDefaultTimeout(10000);
-        contextToUse.setDefaultNavigationTimeout(45000);
+        contextToUse.setDefaultTimeout(DEFAULT_TIMEOUT);
+        contextToUse.setDefaultNavigationTimeout(NAVIGATION_TIMEOUT);
         await contextToUse.route('**/*', route => {
           const url = route.request().url();
-          const blocked = [
-            'gtm.js',
-            'analytics.js',
-            '.woff',
-            '.woff2',
-            'qualtrics.com',
-            'qualified.com',
-            'survey',
-            'feedback',
-            'msecnd.net/survey',
-            'siteintercept'
-          ];
-          if (blocked.some(substring => url.includes(substring))) {
-            console.log(`Blocked: ${url}`);
+          if (BLOCKED_RESOURCES.some(substring => url.includes(substring))) {
+            logger.info(`Blocked: ${url}`);
             return route.abort();
           }
           return route.continue();
@@ -525,14 +550,14 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
       page = await contextToUse.newPage();
 
       try {
-        console.log('   Navigating to URL...');
-        resp = await pTimeout(page.goto(url, { timeout: 45000, waitUntil: 'domcontentloaded' }), 45000, 'Navigation timeout');
-        console.log('   Navigation completed');
+        logger.info('   Navigating to URL...');
+        resp = await pTimeout(page.goto(url, { timeout: NAVIGATION_TIMEOUT, waitUntil: 'domcontentloaded' }), NAVIGATION_TIMEOUT, 'Navigation timeout');
+        logger.info('   Navigation completed');
         gatekeeperDetected = await handleGatekeeper(page, url);
         await handleOverlays(page);
-        await handleSurvey(page); // Handle survey pop-up after other interstitials
+        await handleSurvey(page);
       } catch (error) {
-        console.log(`   Navigation error for ${url}: ${error.message}`);
+        logger.error(`   Navigation error for ${url}: ${error.message}`);
         pageError = `Navigation failed: ${error.message}`;
         results[idx]['HTTP Status'] = 'Navigation Error';
         const validTestIds = testIds.filter(id => allTestIds.includes(id));
@@ -546,7 +571,7 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
         await page.close();
         if (contextToUse !== context) await contextToUse.close();
         await updateProgress(idx + 1, startTime);
-        console.log(`     ❌ Failed navigation ${(Date.now() - t0) / 1000}s`);
+        logger.error(`     ❌ Failed navigation ${(Date.now() - t0) / 1000}s`);
         return;
       }
 
@@ -556,18 +581,16 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
       const validTestIds = testIds.filter(id => allTestIds.includes(id));
       if (testIds.length !== validTestIds.length) {
         const invalid = testIds.filter(id => !allTestIds.includes(id)).join(', ');
-        console.log(`   Warning: Invalid test IDs [${invalid}] ignored.`);
+        logger.warn(`   Warning: Invalid test IDs [${invalid}] ignored.`);
         testIds.filter(id => !allTestIds.includes(id)).forEach(id => {
           results[idx][id] = 'NA';
         });
       }
 
-      const defaultViewport = { width: 1920, height: 1080 };
-      const mobileViewport = { width: 375, height: 667 };
-
       // Execute each test case for the URL
       for (const id of allTestIds) {
         if (!validTestIds.includes(id)) continue;
+        await handleSurvey(page);
 
         let pass = false;
         let errorDetails = '';
@@ -575,59 +598,66 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
           if (['TC-07', 'TC-11'].includes(id)) {
             page.setDefaultTimeout(15000);
           } else {
-            page.setDefaultTimeout(10000);
+            page.setDefaultTimeout(DEFAULT_TIMEOUT);
           }
 
           if (id === 'TC-02') {
-            await page.setViewportSize(mobileViewport);
+            await page.setViewportSize(MOBILE_VIEWPORT);
             await page.waitForTimeout(1000);
           }
 
           switch (id) {
             case 'TC-01': {
+              // Verify hero text is visible on the homepage
               const heroText = await page.$('section.ge-homepage-hero-v2-component .ge-homepage-hero-v2__text-content');
               pass = heroText && await heroText.isVisible();
               errorDetails = pass ? '' : 'Hero text not found or not visible in hero section';
               break;
             }
             case 'TC-02': {
+              // Verify hero text is visible on mobile viewport
               const heroText = await page.$('div[id*="ge-homepage-hero"] .ge-homepage-hero-v2__text-content, section.ge-homepage-hero-v2-component .ge-homepage-hero-v2__text-content');
               pass = heroText && await heroText.isVisible();
               errorDetails = pass ? '' : 'Hero text not found or not visible on mobile viewport';
               break;
             }
             case 'TC-03': {
+              // Verify header element is present
               pass = !!(await page.$('header, [class*="header"]'));
               errorDetails = pass ? '' : 'Header element not found';
               break;
             }
             case 'TC-04': {
+              // Verify navigation element is present
               pass = !!(await page.$('nav, [class*="nav"]'));
               errorDetails = pass ? '' : 'Navigation element not found';
               break;
             }
             case 'TC-05': {
+              // Verify main content element is present
               pass = !!(await page.$('main, [class*="main"]'));
               errorDetails = pass ? '' : 'Main content element not found';
               break;
             }
             case 'TC-06': {
+              // Verify footer element is present
               pass = !!(await page.$('footer, [class*="footer"]'));
               errorDetails = pass ? '' : 'Footer element not found';
               break;
             }
             case 'TC-07': {
-              console.log(`   TC-07: Starting for ${url}`);
+              // Verify video playback by finding and clicking a play button, then checking for a modal and video player
+              logger.info(`   TC-07: Starting for ${url}`);
               await page.waitForLoadState('networkidle');
               await page.waitForTimeout(500);
 
               if (await page.$('video, video[data-testid="hls-video"], iframe[src*="vidyard"], [data-testid*="video"]')) {
                 pass = true;
-                console.log(`   TC-07: Video found directly`);
+                logger.info(`   TC-07: Video found directly`);
                 break;
               }
 
-              console.log(`   TC-07: No video found, searching for play button`);
+              logger.info(`   TC-07: No video found, searching for play button`);
               const playButtonSelector = await scrollAndFind(page, [
                 '.eds-rd-play',
                 '.eds-rd-play-icon',
@@ -640,13 +670,13 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
               if (!playButtonSelector) {
                 pass = false;
                 errorDetails = 'Play button/element not found';
-                console.log(`   TC-07: Play button not found`);
+                logger.warn(`   TC-07: Play button not found`);
                 await logPageDom(page, url, 'TC-07');
                 break;
               }
 
               const playButton = page.locator(playButtonSelector);
-              console.log(`   TC-07: Found play button: ${playButtonSelector}`);
+              logger.info(`   TC-07: Found play button: ${playButtonSelector}`);
 
               const imgContainer = page.locator('.ge-contentTeaser__content-section__contentTeaserHero__img-container');
               if (await imgContainer.count()) {
@@ -678,13 +708,13 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
               if (!isVisible) {
                 pass = false;
                 errorDetails = 'Play button not visible after scrolling and hovering';
-                console.log(`   TC-07: Play button not visible`);
+                logger.warn(`   TC-07: Play button not visible`);
                 await logPageDom(page, url, 'TC-07');
                 break;
               }
 
               await playButton.click();
-              console.log(`   TC-07: Clicked play button, waiting for modal`);
+              logger.info(`   TC-07: Clicked play button, waiting for modal`);
 
               const modal = await page.waitForSelector(
                 'div.ge-modal-window, div.ge-contentTeaser__content-section__video-modal, div.ge-contentTeaser__content-section__vidyard-video-modal',
@@ -693,29 +723,30 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
               if (!modal) {
                 pass = false;
                 errorDetails = 'Video modal did not open';
-                console.log(`   TC-07: Modal did not open`);
+                logger.warn(`   TC-07: Modal did not open`);
                 await logPageDom(page, url, 'TC-07');
                 break;
               }
 
-              console.log(`   TC-07: Modal opened, waiting for Vidyard player`);
+              logger.info(`   TC-07: Modal opened, waiting for Vidyard player`);
               pass = await page.waitForSelector(
                 'div.vidyard-player-container, iframe[src*="play.vidyard.com"], video',
                 { timeout: 10000 }
               ).then(() => true).catch(() => false);
               errorDetails = pass ? '' : 'Vidyard player or iframe not found after modal opened';
-              console.log(`   TC-07: Vidyard player check: ${pass ? 'Pass' : 'Fail'}`);
+              logger.info(`   TC-07: Vidyard player check: ${pass ? 'Pass' : 'Fail'}`);
               if (!pass) await logPageDom(page, url, 'TC-07');
               break;
             }
             case 'TC-08': {
-              console.log(`   TC-08: Starting for ${url}`);
+              // Verify Contact Us button opens a form
+              logger.info(`   TC-08: Starting for ${url}`);
               await page.waitForLoadState('networkidle');
               await page.waitForTimeout(500);
 
               const initialForms = await page.$$('form');
               const initialFormCount = initialForms.length;
-              console.log(`   TC-08: Initial form count: ${initialFormCount}`);
+              logger.info(`   TC-08: Initial form count: ${initialFormCount}`);
 
               let contact = page.locator('button[name="Open Form Overlay"], a[name="Open Form Overlay"]').first();
 
@@ -743,19 +774,19 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
               }
 
               if (!(await contact.count())) {
-                console.log('   TC-08: No contact button or link found');
+                logger.warn('   TC-08: No contact button or link found');
                 pass = false;
                 errorDetails = 'No contact button or link found';
                 await logPageDom(page, url, 'TC-08');
                 break;
               }
 
-              console.log(`   TC-08: Found contact element: ${await contact.textContent()}`);
+              logger.info(`   TC-08: Found contact element: ${await contact.textContent()}`);
 
               try {
                 await contact.waitFor({ state: 'visible', timeout: 20000 });
               } catch (e) {
-                console.log('   TC-08: Contact element not visible within 20 seconds');
+                logger.warn('   TC-08: Contact element not visible within 20 seconds');
                 pass = false;
                 errorDetails = 'Contact element not visible';
                 await logPageDom(page, url, 'TC-08');
@@ -765,18 +796,19 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
               await contact.scrollIntoViewIfNeeded();
               await contact.click({ force: true });
 
-              console.log(`   TC-08: Waiting for form count to increase`);
+              logger.info(`   TC-08: Waiting for form count to increase`);
               pass = await page.waitForFunction(
                 prevCount => document.querySelectorAll('form').length > prevCount,
                 initialFormCount,
                 { timeout: 10000 }
               ).then(() => true).catch(() => false);
               errorDetails = pass ? '' : `Form count did not increase (initial: ${initialFormCount}, current: ${await page.evaluate(() => document.querySelectorAll('form').length)})`;
-              console.log(`   TC-08: Form count check: ${pass ? 'Pass' : 'Fail'}`);
+              logger.info(`   TC-08: Form count check: ${pass ? 'Pass' : 'Fail'}`);
               if (!pass) await logPageDom(page, url, 'TC-08');
               break;
             }
             case 'TC-09': {
+              // Check for rendering errors
               const errorText = 'A rendering error occurred';
               const pageContent = await page.content();
               pass = !pageContent.includes(errorText);
@@ -784,18 +816,20 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
               break;
             }
             case 'TC-10': {
-              console.log(`   TC-10: Checking gatekeeper handling for ${url}`);
-              console.log(`   TC-10: Gatekeeper detected: ${gatekeeperDetected}, HTTP status: ${resp ? resp.status() : 'N/A'}, Final URL: ${page.url()}`);
+              // Verify gatekeeper handling
+              logger.info(`   TC-10: Checking gatekeeper handling for ${url}`);
+              logger.info(`   TC-10: Gatekeeper detected: ${gatekeeperDetected}, HTTP status: ${resp ? resp.status() : 'N/A'}, Final URL: ${page.url()}`);
               pass = gatekeeperDetected && resp && resp.status() === 200;
               errorDetails = pass ? '' : gatekeeperDetected ? 
                 `Page did not load successfully after gatekeeper (status: ${resp ? resp.status() : 'N/A'})` : 
                 'Gatekeeper UI not detected when expected';
               if (!pass) await logPageDom(page, url, 'TC-10');
-              console.log(`   TC-10: Result: ${pass ? 'Pass' : 'Fail'} (${errorDetails})`);
+              logger.info(`   TC-10: Result: ${pass ? 'Pass' : 'Fail'} (${errorDetails})`);
               break;
             }
             case 'TC-11': {
-              console.log(`   TC-11: Starting for ${url}`);
+              // Verify insights/newsroom link navigation
+              logger.info(`   TC-11: Starting for ${url}`);
               await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
               await page.waitForTimeout(3000);
               const insightsLinkSelectors = [
@@ -821,23 +855,24 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
               if (!insightsLink || !selectedHref) {
                 pass = false;
                 errorDetails = 'No valid insights/newsroom link with href found';
-                console.log(`   TC-11: No valid link found`);
+                logger.warn(`   TC-11: No valid link found`);
                 await logPageDom(page, url, 'TC-11');
                 break;
               }
               const targetUrl = new URL(selectedHref, page.url()).toString();
-              console.log(`   TC-11: Navigating to ${targetUrl}`);
+              logger.info(`   TC-11: Navigating to ${targetUrl}`);
               const newPage = await contextToUse.newPage();
               const response = await newPage.goto(targetUrl, { timeout: 30000, waitUntil: 'domcontentloaded' });
               pass = !!response && response.status() === 200;
               errorDetails = pass ? '' : `Navigating to ${targetUrl} resulted in status ${response ? response.status() : 'N/A'}`;
-              console.log(`   TC-11: Navigation result: ${pass ? 'Pass' : 'Fail'}`);
+              logger.info(`   TC-11: Navigation result: ${pass ? 'Pass' : 'Fail'}`);
               if (!pass) await logPageDom(newPage, targetUrl, 'TC-11');
               await newPage.close();
               break;
             }
             case 'TC-12': {
-              console.log(`   TC-12: Final URL: ${page.url()}`);
+              // Verify redirect to doccheck-login
+              logger.info(`   TC-12: Final URL: ${page.url()}`);
               const finalUrl = page.url();
               pass = finalUrl.includes('/account/doccheck-login');
               errorDetails = pass ? '' : `Expected redirect to "/account/doccheck-login" not found: ${finalUrl}`;
@@ -845,78 +880,80 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
               break;
             }
             case 'TC-13': {
-              console.log(`   TC-13: Starting for ${url}`);
+              // Verify navigation through Produkte to Ultraschall
+              logger.info(`   TC-13: Starting for ${url}`);
               await page.waitForLoadState('networkidle');
               await page.waitForTimeout(500);
 
               const produkteButton = page.getByRole('button', { name: 'Produkte' }).first();
               try {
                 await produkteButton.waitFor({ state: 'visible', timeout: 30000 });
-                console.log('   TC-13: Produkte button found and visible');
+                logger.info('   TC-13: Produkte button found and visible');
               } catch (e) {
-                console.log('   TC-13: Produkte button not found or not visible within 30s');
+                logger.warn('   TC-13: Produkte button not found or not visible within 30s');
                 pass = false;
                 errorDetails = 'Produkte button not found or not visible';
                 await logPageDom(page, url, 'TC-13');
                 break;
               }
-              console.log(`   TC-13: Clicking Produkte button`);
+              logger.info(`   TC-13: Clicking Produkte button`);
               await produkteButton.click();
 
               let ultraschallButton = page.getByRole('button', { name: 'Ultraschall' });
               try {
                 await ultraschallButton.waitFor({ state: 'visible', timeout: 10000 });
-                console.log('   TC-13: Ultraschall submenu item found and visible via role');
+                logger.info('   TC-13: Ultraschall submenu item found and visible via role');
               } catch (e) {
-                console.log('   TC-13: Ultraschall not found via role, trying fallback');
+                logger.info('   TC-13: Ultraschall not found via role, trying fallback');
                 ultraschallButton = page.locator('.menu-content-container-item-data', { hasText: 'Ultraschall' });
                 await ultraschallButton.waitFor({ state: 'visible', timeout: 5000 });
                 if (!(await ultraschallButton.isVisible())) {
-                  console.log('   TC-13: Ultraschall submenu item not found or not visible within 15s');
+                  logger.warn('   TC-13: Ultraschall submenu item not found or not visible within 15s');
                   pass = false;
                   errorDetails = 'Ultraschall submenu item not found or not visible';
                   await logPageDom(page, url, 'TC-13');
                   break;
                 }
-                console.log('   TC-13: Ultraschall submenu item found via fallback');
+                logger.info('   TC-13: Ultraschall submenu item found via fallback');
               }
-              console.log(`   TC-13: Clicking Ultraschall submenu item`);
+              logger.info(`   TC-13: Clicking Ultraschall submenu item`);
               await ultraschallButton.click();
 
               const moreLink = page.locator('a[href="https://www.ge-ultraschall.com/"]');
               try {
                 await moreLink.waitFor({ state: 'visible', timeout: 30000 });
-                console.log('   TC-13: Found "Mehr erfahren" link by href');
+                logger.info('   TC-13: Found "Mehr erfahren" link by href');
               } catch (error) {
-                console.log('   TC-13: "Mehr erfahren" link not found by href within 30 seconds');
+                logger.info('   TC-13: "Mehr erfahren" link not found by href within 30 seconds');
                 const moreLinkByText = page.locator('a', { hasText: /> Mehr erfahren/i });
                 await moreLinkByText.waitFor({ state: 'visible', timeout: 5000 });
                 if (!(await moreLinkByText.isVisible())) {
-                  console.log('   TC-13: Fallback link not found or not visible');
+                  logger.warn('   TC-13: Fallback link not found or not visible');
                   pass = false;
                   errorDetails = '"Mehr erfahren" link not found or not visible';
                   await logPageDom(page, url, 'TC-13');
                   break;
                 }
-                console.log('   TC-13: Found "Mehr erfahren" link via text fallback');
+                logger.info('   TC-13: Found "Mehr erfahren" link via text fallback');
               }
 
-              console.log(`   TC-13: Clicking "Mehr erfahren" link`);
+              logger.info(`   TC-13: Clicking "Mehr erfahren" link`);
               await moreLink.scrollIntoViewIfNeeded();
               await moreLink.click();
 
               await page.waitForNavigation({ timeout: 30000 }).catch(() => {
-                console.log('   TC-13: Navigation wait timed out, proceeding with current URL');
+                logger.info('   TC-13: Navigation wait timed out, proceeding with current URL');
               });
 
               const dest = page.url();
-              console.log(`   TC-13: Navigated to ${dest}`);
+              logger.info(`   TC-13: Navigated to ${dest}`);
               pass = dest.startsWith('https://gehealthcare-ultrasound.com/') || dest.startsWith('https://www.ge-ultraschall.com/');
               errorDetails = pass ? '' : `Navigation did not go to expected ultrasound site: ${dest}`;
               if (!pass) await logPageDom(page, url, 'TC-13');
               break;
             }
             case 'TC-14': {
+              // Verify HTTP status is 2xx or 3xx
               const c = resp ? resp.status() : 0;
               pass = (c >= 200 && c < 300) || HTTP_REDIRECT.includes(c);
               errorDetails = pass ? '' : `HTTP Status was ${c}, expected 2xx or 3xx`;
@@ -925,21 +962,21 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
             default: {
               pass = false;
               errorDetails = `Unsupported Test ID: ${id}`;
-              console.warn(errorDetails);
+              logger.warn(errorDetails);
             }
           }
         } catch (err) {
-          console.log(`   EXCEPTION for ${id}: ${err.message}`);
+          logger.error(`   EXCEPTION for ${id}: ${err.message}`);
           pass = false;
           errorDetails = `Exception during test execution for ${id}: ${err.message}`;
           await logPageDom(page, url, id);
           const safeUrl = url.replace(/[^a-zA-Z0-9_-]/g, '_');
-          const screenshotPath = `${screenshotDir}/${safeUrl}-${id}-exception.png`;
+          const screenshotPath = `${SCREENSHOT_DIR}/${safeUrl}-${id}-exception.png`;
           await page.screenshot({ path: screenshotPath, fullPage: true })
-            .catch(screenshotErr => console.error(`Screenshot failed during exception for ${id}: ${screenshotErr.message}`));
+            .catch(screenshotErr => logger.error(`Screenshot failed during exception for ${id}: ${screenshotErr.message}`));
         } finally {
           if (id === 'TC-02') {
-            await page.setViewportSize(defaultViewport);
+            await page.setViewportSize(DEFAULT_VIEWPORT);
             await page.waitForTimeout(1000);
           }
         }
@@ -957,15 +994,15 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
       if (failedTestIds.length > 0) {
         await page.waitForTimeout(2000);
         const screenshotFileName = `${safeUrl}-failed-${failedTestIds.join(',')}.png`;
-        const screenshotPath = path.join(screenshotDir, screenshotFileName);
+        const screenshotPath = path.join(SCREENSHOT_DIR, screenshotFileName);
         await page.screenshot({ path: screenshotPath, fullPage: true });
         screenshotUrl = await uploadFile(screenshotPath, `screenshots/${screenshotFileName}`);
-        if (screenshotUrl) console.log(`Screenshot uploaded: ${screenshotUrl}`);
+        if (screenshotUrl) logger.info(`Screenshot uploaded: ${screenshotUrl}`);
 
         if (captureVideo) {
           const videoContext = await browser.newContext({
-            recordVideo: { dir: videoDir, timeout: 15000 },
-            viewport: defaultViewport
+            recordVideo: { dir: VIDEO_DIR, timeout: 15000 },
+            viewport: DEFAULT_VIEWPORT
           });
           const videoPage = await videoContext.newPage();
           await videoPage.goto(url, { waitUntil: 'domcontentloaded' });
@@ -974,10 +1011,10 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
           await videoContext.close();
           const uniqueId = uuidv4();
           const videoFileName = `${safeUrl}-${uniqueId}.webm`;
-          const finalVideoPath = path.join(videoDir, videoFileName);
+          const finalVideoPath = path.join(VIDEO_DIR, videoFileName);
           await fs.promises.rename(videoPath, finalVideoPath);
           videoUrl = await uploadFile(finalVideoPath, `videos/${videoFileName}`);
-          if (videoUrl) console.log(`Video uploaded: ${videoUrl}`);
+          if (videoUrl) logger.info(`Video uploaded: ${videoUrl}`);
         }
       }
 
@@ -991,7 +1028,7 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
           .eq('run_id', runId)
           .eq('url', url)
           .in('test_id', failedTestIds);
-        if (updateError) console.error('Error updating test results with media URLs:', updateError.message || updateError);
+        if (updateError) logger.error('Error updating test results with media URLs:', updateError.message || updateError);
       }
 
       if (screenshotUrl) allScreenshotUrls.push(screenshotUrl);
@@ -1005,13 +1042,12 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
       results[idx]['Page Pass?'] = pagePassStatus;
 
       await updateProgress(idx + 1, startTime);
-      console.log(`     ✔ ${(Date.now() - t0) / 1000}s`);
+      logger.info(`     ✔ ${(Date.now() - t0) / 1000}s`);
       await page.close();
       if (contextToUse !== context) await contextToUse.close();
     }
 
     // Process URLs in batches with concurrency control
-    const CONCURRENCY = 3;
     const urlBatches = [];
     for (let i = 0; i < urls.length; i += CONCURRENCY) {
       urlBatches.push(urls.slice(i, i + CONCURRENCY));
@@ -1019,12 +1055,12 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
 
     for (let batchIndex = 0; batchIndex < urlBatches.length; batchIndex++) {
       const batch = urlBatches[batchIndex];
-      console.log(`\n➡  Batch ${batchIndex + 1}/${urlBatches.length}`);
+      logger.info(`\n➡  Batch ${batchIndex + 1}/${urlBatches.length}`);
       await Promise.all(
         batch.map((urlData, j) =>
           pTimeout(runUrl(urlData, batchIndex * CONCURRENCY + j), 90000, `URL processing timeout for ${urlData.url}`)
             .catch(async (err) => {
-              console.error(`Timeout or error for ${urlData.url}: ${err.message}`);
+              logger.error(`Timeout or error for ${urlData.url}: ${err.message}`);
               results[batchIndex * CONCURRENCY + j]['Page Pass?'] = 'Fail';
               if (results[batchIndex * CONCURRENCY + j]['HTTP Status'] === '-') {
                 results[batchIndex * CONCURRENCY + j]['HTTP Status'] = 'Timeout/Error';
@@ -1034,8 +1070,8 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
         )
       );
       if (batchIndex < urlBatches.length - 1) {
-        console.log('   Waiting 5 seconds before next batch...');
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        logger.info('   Waiting 5 seconds before next batch...');
+        await new Promise(resolve => setTimeout(resolve, BATCH_DELAY));
       }
     }
 
@@ -1055,12 +1091,12 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
     const failed = results.filter(r => r['Page Pass?'] === 'Fail').length;
     const na = results.filter(r => r['Page Pass?'] === 'NA').length;
 
-    console.log(`\nSummary: ${passed}/${total} pages passed, ${failed} failed, ${na} N/A.`);
+    logger.info(`\nSummary: ${passed}/${total} pages passed, ${failed} failed, ${na} N/A.`);
     const testFailureSummary = {};
     allTestIds.forEach(id => {
       const f = results.filter(r => r[id] === 'Fail').length;
       if (f > 0) {
-        console.log(`  • ${f} × ${id}`);
+        logger.info(`  • ${f} × ${id}`);
         testFailureSummary[id] = f;
       }
     });
@@ -1105,7 +1141,7 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
     ];
 
     await outputWorkbook.xlsx.writeFile(outputFile);
-    console.log(`\n✅ Results saved → ${outputFile}\n`);
+    logger.info(`\n✅ Results saved → ${outputFile}\n`);
 
     // Prepare and send payload to API
     const payload = {
@@ -1129,13 +1165,13 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
 
     const summaryFilePath = 'summary.json';
     fs.writeFileSync(summaryFilePath, JSON.stringify(payload, null, 2));
-    console.log(`Run summary saved to ${summaryFilePath}`);
+    logger.info(`Run summary saved to ${summaryFilePath}`);
 
     const storeRunBaseUrl = process.env.VERCEL_URL && !process.env.VERCEL_URL.startsWith('http')
       ? `https://${process.env.VERCEL_URL}`
       : process.env.VERCEL_URL || 'http://localhost:3000';
     const storeRunUrl = `${storeRunBaseUrl}/api/store-run`;
-    console.log(`Sending run summary to ${storeRunUrl}`);
+    logger.info(`Sending run summary to ${storeRunUrl}`);
     try {
       const response = await fetch(storeRunUrl, {
         method: 'POST',
@@ -1145,21 +1181,21 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
 
       if (!response.ok) {
         const errorBody = await response.text();
-        console.error(`Failed to store run: ${response.status} ${response.statusText}`, errorBody);
+        logger.error(`Failed to store run: ${response.status} ${response.statusText}`, errorBody);
       } else {
-        console.log('Successfully stored run summary via API.');
+        logger.info('Successfully stored run summary via API.');
       }
     } catch (apiError) {
-      console.error('Error sending run summary to API:', apiError.message);
+      logger.error('Error sending run summary to API:', apiError.message);
     }
 
     await context.close();
     await browser.close();
 
-    console.log('Script completed successfully. Exiting with code 0.');
+    logger.info('Script completed successfully. Exiting with code 0.');
     process.exit(0);
   } catch (error) {
-    console.error('Fatal error:', error.message || error);
+    logger.error('Fatal error:', error.message || error);
     process.exit(1);
   }
 })();

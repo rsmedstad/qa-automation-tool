@@ -63,3 +63,127 @@ th, td {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* Custom Scrollbar Styles */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 8px; /* Thinner scrollbar for WebKit browsers (Chrome, Safari) */
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background-color: #888; /* Gray thumb */
+  border-radius: 4px; /* Rounded edges */
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent; /* Transparent track */
+}
+
+/* For Firefox */
+.custom-scrollbar {
+  scrollbar-width: thin; /* Thinner scrollbar */
+  scrollbar-color: #888 transparent; /* Thumb and track colors */
+}
+
+/* Optional: Dark mode adjustments */
+.dark .custom-scrollbar::-webkit-scrollbar-thumb {
+  background-color: #555; /* Darker thumb in dark mode */
+}
+
+.dark .custom-scrollbar {
+  scrollbar-color: #555 transparent; /* Darker thumb for Firefox in dark mode */
+}
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+body {
+  font-family: 'Inter', sans-serif;
+}
+
+.open-sans {
+  font-family: 'Open Sans', 'Helvetica Neue', sans-serif;
+  font-optical-sizing: auto;
+  font-weight: 400;
+  font-style: normal;
+}
+
+.prose table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 1rem;
+}
+
+.prose th, .prose td {
+  padding: 0.75rem;
+  border-bottom: 1px solid #e5e7eb;
+  text-align: left;
+}
+
+.prose th {
+  background-color: #f3f4f6;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.prose tr:nth-child(even) {
+  background-color: #f1f5f9;
+}
+
+.prose tr:nth-child(odd) {
+  background-color: #ffffff;
+}
+
+.dark .prose th, .dark .prose td {
+  border-bottom-color: #374151;
+}
+
+.dark .prose th {
+  background-color: #1f2937;
+}
+
+.dark .prose tr:nth-child(even) {
+  background-color: #111827;
+}
+
+table.table-fixed {
+  table-layout: fixed;
+  width: 100%;
+}
+
+th, td {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Custom Scrollbar Styles */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 8px; /* Thinner scrollbar for WebKit browsers (Chrome, Safari) */
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background-color: #888; /* Gray thumb */
+  border-radius: 4px; /* Rounded edges */
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent; /* Transparent track */
+}
+
+/* For Firefox */
+.custom-scrollbar {
+  scrollbar-width: thin; /* Thinner scrollbar */
+  scrollbar-color: #888 transparent; /* Thumb and track colors */
+}
+
+/* Optional: Dark mode adjustments */
+.dark .custom-scrollbar::-webkit-scrollbar-thumb {
+  background-color: #555; /* Darker thumb in dark mode */
+}
+
+.dark .custom-scrollbar {
+  scrollbar-color: #555 transparent; /* Darker thumb for Firefox in dark mode */
+}

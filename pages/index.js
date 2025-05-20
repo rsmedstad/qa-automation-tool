@@ -109,7 +109,7 @@ const FailingTestsChart = React.memo(({ failedTests, isDarkMode, activeIssuesTab
           onClick={() => setActiveIssuesTab('trended')}
           className={`w-34 px-4 py-2 rounded-lg ${activeIssuesTab === 'trended' ? 'bg-indigo-600 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'}`}
         >
-          Trended (Last 30)
+          Trended (Last 16)
         </button>
       </div>
       {hasFails ? (
@@ -147,6 +147,8 @@ export default function Dashboard() {
   const [activeInfoTab, setActiveInfoTab] = useState('about');
   const chartRef = useRef(null);
   const donutChartRef = useRef(null);
+  const chatContainerRef = useRef(null);
+  const [isGeminiExpanded, setIsGeminiExpanded] = useState(false);
 
   const handleShare = async () => {
     if (navigator.share) {
@@ -165,13 +167,22 @@ export default function Dashboard() {
   };
 
   useEffect(() => {
-    const fetchRuns = async () => {
+    const fetchRuns = async (retryCount = 0) => {
       setRunsLoading(true);
+      console.log('Fetching runs at:', new Date().toISOString());
       try {
         const res = await fetch(`/api/get-runs?cache_bust=${Date.now()}`, {
           headers: { 'Cache-Control': 'no-cache' },
         });
-        if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+        if (!res.ok) {
+          const errorText = await res.text();
+          if (res.status === 429 && retryCount < 3) {
+            // Rate-limited: wait and retry (1s, 2s, 3s delay)
+            await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1)));
+            return fetchRuns(retryCount + 1);
+          }
+          throw new Error(`HTTP error! status: ${res.status}, message: ${errorText}`);
+        }
         const data = await res.json();
         console.log('Fetched runs:', data);
         const sanitizedData = data.map((run, idx) => {
@@ -207,7 +218,18 @@ export default function Dashboard() {
         setRunsLoading(false);
       }
     };
-    fetchRuns();
+
+    // Debounce the fetch to prevent rapid calls during development
+    const debounceFetch = (fn, delay) => {
+      let timeout;
+      return (...args) => {
+        clearTimeout(timeout);
+        timeout = setTimeout(() => fn(...args), delay);
+      };
+    };
+
+    const debouncedFetchRuns = debounceFetch(fetchRuns, 1000); // 1-second debounce
+    debouncedFetchRuns();
   }, []);
 
   useEffect(() => {
@@ -250,7 +272,7 @@ export default function Dashboard() {
       try {
         const ctx = chartRef.current.getContext('2d');
         const sortedRunsChartData = [...runs].sort((a, b) => new Date(a.date) - new Date(b.date));
-        const recentRuns = sortedRunsChartData.slice(-24);
+        const recentRuns = sortedRunsChartData.slice(-16);
 
         const labels = recentRuns.map((run) => {
           const date = new Date(run.date);
@@ -339,6 +361,7 @@ export default function Dashboard() {
     if (runs.length > 0 && donutChartRef.current) {
       try {
         const ctx = donutChartRef.current.getContext('2d');
+        const recentRunsForDonut = sortedRuns.slice(0, 16);
         const scheduledCount = runs.filter((run) => run.event === 'schedule').length;
         const adHocCount = runs.filter((run) => run.event === 'workflow_dispatch').length;
 
@@ -361,7 +384,7 @@ export default function Dashboard() {
               legend: { position: 'right', labels: { color: legendColor, boxWidth: 15, padding: 15 } },
               datalabels: { display: true, color: datalabelColor, font: { size: 16, weight: 'bold' }, formatter: (value) => (value > 0 ? value : '') },
               tooltip: {
-                backgroundColor: isDarkMode ? 'rgba(40,40,40,0.9)' : ' Rgba(245,245,245,0.9)',
+                backgroundColor: isDarkMode ? 'rgba(40,40,40,0.9)' : 'rgba(245,245,245,0.9)',
                 titleColor: isDarkMode ? '#E5E7EB' : '#374151',
                 bodyColor: isDarkMode ? '#E5E7EB' : '#374151',
                 borderColor: isDarkMode ? '#555' : '#ccc',
@@ -538,7 +561,7 @@ export default function Dashboard() {
   const displayedRuns = showAll ? sortedRuns : sortedRuns.slice(0, 7);
 
   const trendedFailedTests = useMemo(() => {
-    const last30Runs = sortedRuns.slice(0, 30);
+    const last30Runs = sortedRuns.slice(0, 16);
     const aggregated = {};
     last30Runs.forEach(run => {
       if (run.failed_tests) {
@@ -593,6 +616,16 @@ export default function Dashboard() {
       e.preventDefault();
       handleAskSubmit();
     }
+  };
+
+  useEffect(() => {
+    if (chatContainerRef.current) {
+      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+    }
+  }, [messages]);
+
+  const toggleGeminiExpansion = () => {
+    setIsGeminiExpanded(!isGeminiExpanded);
   };
 
   return (
@@ -670,7 +703,7 @@ export default function Dashboard() {
                   <h2 className="text-xl font-semibold text-gray-700 dark:text-gray-300">Crawls Trended</h2>
                   <button
                     onClick={() => {
-                      const recentRuns = [...runs].sort((a, b) => new Date(a.date) - new Date(b.date)).slice(-24);
+                      const recentRuns = [...runs].sort((a, b) => new Date(a.date) - new Date(b.date)).slice(-12);
                       const headers = ['Date & Time', 'Passed', 'Failed', 'N/A'];
                       const data = recentRuns.map(run => ({
                         'Date & Time': new Date(run.date).toLocaleString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'America/Chicago' }),
@@ -765,7 +798,7 @@ export default function Dashboard() {
                     </div>
                   </div>
                 </div>
-                <div className="h-[23rem] overflow-y-auto">
+                <div className="h-[23rem] overflow-y-auto custom-scrollbar">
                   {runsLoading && !runs.length ? (
                     <p className="text-gray-500 dark:text-gray-400 text-center py-4">Loading run data...</p>
                   ) : runsError ? (
@@ -958,20 +991,53 @@ export default function Dashboard() {
                 )}
               </div>
 
-              <div id="ask-gemini" className="md:col-span-5 p-4 sm:p-6 bg-white dark:bg-gray-800 rounded-xl shadow-lg flex flex-col h-[500px]">
-                <div className="flex items-center mb-4">
-                  <img
-                    src="https://www.gstatic.com/lamda/images/gemini_sparkle_v002_d4735304ff6292a690345.svg"
-                    alt="Gemini Icon"
-                    className="w-6 h-6 mr-2"
-                  />
-                  <h2 className="text-xl font-semibold text-gray-700 dark:text-gray-300 open-sans">Ask Gemini</h2>
+              {isGeminiExpanded && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 z-40" onClick={toggleGeminiExpansion}></div>
+              )}
+
+              <div
+                id="ask-gemini"
+                className={`p-4 sm:p-6 bg-white dark:bg-gray-800 rounded-xl shadow-lg flex flex-col ${
+                  isGeminiExpanded
+                    ? 'fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-50 w-[50vw] h-[90vh] overflow-hidden'
+                    : 'md:col-span-5'
+                }`}
+                style={{ height: isGeminiExpanded ? '60vh' : '500px' }}
+              >
+                <div className="flex justify-between items-center mb-4">
+                  <div className="flex items-center">
+                    <img
+                      src="https://www.gstatic.com/lamda/images/gemini_sparkle_v002_d4735304ff6292a690345.svg"
+                      alt="Gemini Icon"
+                      className="w-6 h-6 mr-2"
+                    />
+                    <h2 className="text-xl font-semibold text-gray-700 dark:text-gray-300">Ask Gemini</h2>
+                  </div>
+                  <button
+                    onClick={toggleGeminiExpansion}
+                    className="text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100"
+                    aria-label={isGeminiExpanded ? 'Close Gemini container' : 'Expand Gemini container'}
+                  >
+                    {isGeminiExpanded ? (
+                      <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 0 24 24" width="24px" fill="currentColor">
+                        <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+                      </svg>
+                    ) : (
+                      <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="currentColor">
+                        <path d="M200-200v-240h80v160h160v80H200Zm480-320v-160H520v-80h240v240h-80Z"/>
+                      </svg>
+                    )}
+                  </button>
                 </div>
-                <div className="flex flex-col flex-1">
-                  <div className="flex-1 p-3 bg-gray-100 dark:bg-gray-800 rounded-lg mb-4" style={{ maxHeight: '350px', overflowY: 'auto' }}>
+                <div className="flex flex-col flex-1 overflow-hidden">
+                  <div
+                    ref={chatContainerRef}
+                    className="flex-1 p-3 bg-gray-100 dark:bg-gray-800 rounded-lg mb-4 overflow-y-auto custom-scrollbar"
+                    style={{ maxHeight: '350px' }}
+                  >
                     {!isGeminiEnabled ? (
                       sortedRuns.length > 0 ? (
-                        <p className="text-sm text-gray-800 dark:text-gray-200 whitespace-pre-line">{getInsightMessage(sortedRuns[0])}</p>
+                        <p className="text-sm inline-block p-2 rounded-lg bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 open-sans whitespace-pre-line">{getInsightMessage(sortedRuns[0])}</p>
                       ) : runsLoading ? (
                         <p className="text-sm text-gray-500 dark:text-gray-400">Loading crawl data for insights...</p>
                       ) : (
@@ -1013,18 +1079,18 @@ export default function Dashboard() {
                         value={geminiPassphrase}
                         onChange={(e) => setGeminiPassphrase(e.target.value)}
                         placeholder="Enter passphrase to enable Gemini"
-                        className="flex-1 p-2.5 border border-gray-300 dark:border-gray-600 rounded-l-lg bg-white dark:bg-gray-900 focus:ring-indigo-500 focus:border-indigo-500 dark:focus:ring-indigo-500 dark:focus:border-indigo-500 text-sm"
-                      />
+                        className="flex-1 p-2.5 border-2 border-indigo-500 dark:border-indigo-400 rounded-l-lg bg-white dark:bg-gray-900 focus:outline-none focus:border-indigo-500 focus:ring-offset-1 dark:focus:ring-indigo-500 dark:focus:border-indigo-500 text-sm resize-none mr-1"
+                      />  
                       <button
                         type="submit"
                         disabled={askLoading}
-                        className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-r-lg font-medium text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800 disabled:opacity-60"
+                        className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-r-lg font-medium text-sm transition-colors focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800 disabled:opacity-60"
                       >
                         {askLoading ? 'Enabling...' : 'Enable'}
                       </button>
                     </form>
                   ) : (
-                    <div className="flex items-stretch">
+                    <div className="flex items-stretch mt-auto">
                       <textarea
                         value={question}
                         onChange={(e) => setQuestion(e.target.value)}
@@ -1032,12 +1098,13 @@ export default function Dashboard() {
                         placeholder="Ask about test results or QA protocol..."
                         rows="1"
                         disabled={askLoading}
-                        className="flex-1 p-2.5 border border-gray-300 dark:border-gray-600 rounded-l-lg bg-white dark:bg-gray-900 focus:ring-indigo-500 focus:border-indigo-500 dark:focus:ring-indigo-500 dark:focus:border-indigo-500 text-sm resize-none"
+                        className="flex-1 p-2.5 border-2 border-indigo-500 dark:border-indigo-400 rounded-l-lg bg-white dark:bg-gray-900 focus:outline-none focus:border-indigo-500 focus:ring-offset-1 dark:focus:ring-indigo-500 dark:focus:border-indigo-500 text-sm resize-none mr-1"
+                        style={{ maxWidth: '100%', boxSizing: 'border-box' }}
                       />
                       <button
                         onClick={handleAskSubmit}
                         disabled={askLoading || !question.trim()}
-                        className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-r-lg font-medium text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800 disabled:opacity-60"
+                        className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-r-lg font-medium text-sm transition-colors focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800 disabled:opacity-60"
                       >
                         {askLoading ? 'Thinking...' : 'Send'}
                       </button>
@@ -1096,7 +1163,7 @@ export default function Dashboard() {
               </div>
 
               {activeTab === 'testDefinitions' && (
-                <div className="flex-grow overflow-y-auto scrollbar-thin scrollbar-thumb-gray-400 scrollbar-track-gray-100 dark:scrollbar-thumb-gray-600 dark:scrollbar-track-gray-700">
+                <div className="flex-grow overflow-y-auto custom-scrollbar">
                   <table className="w-full text-left text-sm">
                     <thead className="bg-gray-100 dark:bg-gray-700">
                       <tr>
@@ -1127,7 +1194,7 @@ export default function Dashboard() {
               )}
 
               {activeTab === 'sfTests' && (
-                <div className="flex-grow overflow-y-auto scrollbar-thin scrollbar-thumb-gray-400 scrollbar-track-gray-100 dark:scrollbar-thumb-gray-600 dark:scrollbar-track-gray-700">
+                <div className="flex-grow overflow-y-auto custom-scrollbar">
                   <table className="w-full text-left text-sm">
                     <thead className="bg-gray-100 dark:bg-gray-700">
                       <tr>
@@ -1232,7 +1299,7 @@ export default function Dashboard() {
             </div>
           </div>
         </main>
-        <footer className="text-center py-1 text-xs text-gray-500 dark:text-gray-300 ">
+        <footer className="text-center py-1 text-xs text-gray-500 dark:text-gray-300">
           <p className="flex items-center justify-center gap-2">
             <a href="https://github.com/rsmedstad" target="_blank" rel="noopener noreferrer" className="inline-flex items-center hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors" aria-label="Ryan Smedstad's GitHub Profile">
               Developed by Ryan Smedstad 
