@@ -26,10 +26,10 @@ jobs:
       - name: Cleanup Vercel KV
         run: |
           npm install  # installs node-fetch@^3 from package.json
-          node scripts/cleanup-vercel-kv.js
+          node scripts/cleanup-vercel-kv.js || true
 
 
       - name: Cleanup Supabase
         run: |
           npm install @supabase/supabase-js
-          node scripts/cleanup-supabase.js
+          node scripts/cleanup-supabase.js || true
