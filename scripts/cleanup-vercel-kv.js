@@ -89,13 +89,23 @@ async function cleanup() {
             toDelete.push(key);
           }
         } catch (e) {
-          console.error(`Error reading ${key}:`, e.message);
+          // Log error with the key and continue to the next key (Requirement 1 - Fulfilled)
+          console.error(`Error processing key "${key}": ${e.message}`);
+          // Continue to the next iteration of the for loop
         }
       }
 
+      // Log the count of keys to be deleted (Requirement 2)
+      console.log(`Found ${toDelete.length} keys to delete in this batch.`);
+
       if (toDelete.length) {
-        const deleted = await batchDeleteKeys(toDelete);
-        totalDeleted += deleted.length;
+        try { // (Requirement 3)
+          const deleted = await batchDeleteKeys(toDelete);
+          totalDeleted += deleted.length;
+        } catch (e) { // (Requirement 3)
+          // Log error from batchDeleteKeys and allow the do...while loop to continue
+          console.error(`Error deleting batch of keys: ${e.message}`);
+        }
       }
       cursor = nextCursor;
     } while (cursor !== 0);

@@ -9,27 +9,43 @@ async function cleanup() {
   const cutoffDate = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString();
 
   console.log('Deleting old crawl_progress records...');
-  await supabase
-    .from('crawl_progress')
-    .delete()
-    .lt('started_at', cutoffDate);
+  try {
+    await supabase
+      .from('crawl_progress')
+      .delete()
+      .lt('started_at', cutoffDate);
+  } catch (error) {
+    console.error('Error deleting old crawl_progress records (by started_at):', error);
+  }
 
-  await supabase
-    .from('crawl_progress')
-    .delete()
-    .lt('created_at', cutoffDate);
+  try {
+    await supabase
+      .from('crawl_progress')
+      .delete()
+      .lt('created_at', cutoffDate);
+  } catch (error) {
+    console.error('Error deleting old crawl_progress records (by created_at):', error);
+  }
 
   console.log('Deleting old test_results records...');
-  await supabase
-    .from('test_results')
-    .delete()
-    .lt('timestamp', cutoffDate);
+  try {
+    await supabase
+      .from('test_results')
+      .delete()
+      .lt('timestamp', cutoffDate);
+  } catch (error) {
+    console.error('Error deleting old test_results records:', error);
+  }
 
   console.log('Deleting old test_runs records...');
-  await supabase
-    .from('test_runs')
-    .delete()
-    .lt('created_at', cutoffDate);
+  try {
+    await supabase
+      .from('test_runs')
+      .delete()
+      .lt('created_at', cutoffDate);
+  } catch (error) {
+    console.error('Error deleting old test_runs records:', error);
+  }
 
   console.log('Supabase cleanup complete.');
 }
