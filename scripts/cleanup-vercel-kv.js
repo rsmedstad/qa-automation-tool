@@ -5,22 +5,25 @@ const KV_REST_API_TOKEN = process.env.KV_REST_API_TOKEN;
 const CUTOFF_DAYS = 60;
 
 async function listKeys(cursor = '') {
-  const url = new URL(`${KV_REST_API_URL}/keys`);
+  const url = new URL(`${KV_REST_API_URL}/list`);
   if (cursor) url.searchParams.set('cursor', cursor);
   url.searchParams.set('limit', '100');
 
   console.log(`[DEBUG] Listing keys from: ${url.toString()}`);
 
   const res = await fetch(url.toString(), {
-    headers: { Authorization: `Bearer ${KV_REST_API_TOKEN}` }
+    headers: { Authorization: `Bearer ${KV_REST_API_TOKEN}` },
   });
-
   if (!res.ok) {
-    const errorBody = await res.text();
-    throw new Error(`Failed to list keys: ${res.status} ${res.statusText} - ${errorBody}`);
+    const body = await res.text();
+    throw new Error(`Failed to list keys: ${res.status} ${res.statusText} - ${body}`);
   }
 
-  return res.json(); // { keys: [], cursor: '...' }
+  // Vercel KV /list response shape:
+  // { result: [ { name: 'key1', metadata: {...} }, … ], cursor: 'next-cursor' }
+  const { result, cursor: nextCursor } = await res.json();
+  const keys = result.map(item => item.name);
+  return { keys, cursor: nextCursor };
 }
 
 async function getKeyValue(key) {
@@ -28,15 +31,14 @@ async function getKeyValue(key) {
   console.log(`[DEBUG] Fetching key value: ${url}`);
 
   const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${KV_REST_API_TOKEN}` }
+    headers: { Authorization: `Bearer ${KV_REST_API_TOKEN}` },
   });
-
   if (!res.ok) {
-    const errorBody = await res.text();
-    throw new Error(`Failed to get key value for ${key}: ${res.status} ${res.statusText} - ${errorBody}`);
+    const body = await res.text();
+    throw new Error(`Failed to get key value for ${key}: ${res.status} ${res.statusText} - ${body}`);
   }
 
-  return res.json(); // { result: "..." }
+  return res.json(); // { result: "…string…" }
 }
 
 async function batchDeleteKeys(keys) {
@@ -47,76 +49,59 @@ async function batchDeleteKeys(keys) {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${KV_REST_API_TOKEN}`,
-      'Content-Type': 'application/json'
+      'Content-Type': 'application/json',
     },
-    body: JSON.stringify(keys)
+    body: JSON.stringify(keys),
   });
-
   if (!res.ok) {
-    const errorBody = await res.text();
-    throw new Error(`Failed to batch delete keys: ${res.status} ${res.statusText} - ${errorBody}`);
+    const body = await res.text();
+    throw new Error(`Failed to batch delete keys: ${res.status} ${res.statusText} - ${body}`);
   }
 
-  const result = await res.json();
-  console.log(`Deleted ${result.result.length} keys.`);
-  return result.result;
+  const { result } = await res.json();
+  console.log(`Deleted ${result.length} keys.`);
+  return result;
 }
 
 async function cleanup() {
-  console.log('Starting Vercel KV cleanup...');
-  const cutoffDate = new Date(Date.now() - CUTOFF_DAYS * 24 * 60 * 60 * 1000);
+  console.log('Starting Vercel KV cleanup…');
+  const cutoff = Date.now() - CUTOFF_DAYS * 24 * 60 * 60 * 1000;
   let cursor = '';
   let totalDeleted = 0;
 
   try {
     do {
-      const { keys, cursor: nextCursor } = await listKeys(cursor);
-      const keysToDelete = [];
+      const { keys, cursor: next } = await listKeys(cursor);
+      const toDelete = [];
 
-      for (const keyName of keys) {
+      for (const name of keys) {
         try {
-          const valueResp = await getKeyValue(keyName);
-          const jsonStr = valueResp.result;
+          const { result: jsonStr } = await getKeyValue(name);
+          if (!jsonStr) continue;
 
-          if (!jsonStr) {
-            console.warn(`No value for key: ${keyName}`);
-            continue;
-          }
+          let obj;
+          try { obj = JSON.parse(jsonStr); }
+          catch { continue; }
 
-          let parsed;
-          try {
-            parsed = JSON.parse(jsonStr);
-          } catch {
-            console.warn(`Invalid JSON in key ${keyName}, skipping`);
-            continue;
-          }
-
-          const keyDateStr = parsed.date;
-          if (!keyDateStr) {
-            console.warn(`No "date" field in key ${keyName}, skipping`);
-            continue;
-          }
-
-          const keyDate = new Date(keyDateStr);
-          if (keyDate < cutoffDate) {
-            keysToDelete.push(keyName);
+          if (obj.date && new Date(obj.date).getTime() < cutoff) {
+            toDelete.push(name);
           }
         } catch (e) {
-          console.error(`Error processing key ${keyName}:`, e.message);
+          console.error(`Error reading key ${name}:`, e.message);
         }
       }
 
-      if (keysToDelete.length > 0) {
-        const deletedKeys = await batchDeleteKeys(keysToDelete);
-        totalDeleted += deletedKeys.length;
+      if (toDelete.length) {
+        const deleted = await batchDeleteKeys(toDelete);
+        totalDeleted += deleted.length;
       }
 
-      cursor = nextCursor;
+      cursor = next;
     } while (cursor);
 
-    console.log(`Vercel KV cleanup complete. Total keys deleted: ${totalDeleted}`);
-  } catch (err) {
-    console.error('Cleanup error:', err.message);
+    console.log(`Cleanup complete. Total keys deleted: ${totalDeleted}`);
+  } catch (e) {
+    console.error('Cleanup error:', e.message);
     process.exit(1);
   }
 }
