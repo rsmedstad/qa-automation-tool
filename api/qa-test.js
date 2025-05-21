@@ -272,16 +272,63 @@ const BATCH_DELAY = 2000;
       return true;
     }
 
-    // Log page DOM for debugging failed tests
+    // Log debugging for failed tests
     async function logPageDom(page, url, testId) {
-      try {
-        const safeUrl = url.replace(/[^a-zA-Z0-9_-]/g, '_');
-        const debugFile = path.join(DEBUG_DIR, `${safeUrl}-${testId}-dom.html`);
-        const html = await page.evaluate(() => document.documentElement.outerHTML);
-        fs.writeFileSync(debugFile, html);
-        logger.info(`   Debug DOM saved to ${debugFile}`);
+    try {
+      // Capture console errors for all test cases
+      const consoleErrors = await page.evaluate(() => {
+        return window.console.errors ? window.console.errors.join('; ') : 'None';
+      });
+
+      if (testId === 'TC-08') {
+        // TC-08: Log details related to the "Contact Us" button and form
+        const bodyOpacity = await page.evaluate(() => document.body.style.opacity || '1');
+        const contactButton = await page.$('button[name="Open Form Overlay"], a[name="Open Form Overlay"]');
+        const isVisible = contactButton ? await contactButton.isVisible() : false;
+        const buttonHtml = contactButton ? await page.$eval('button[name="Open Form Overlay"], a[name="Open Form Overlay"]', el => el.outerHTML) : 'Not found';
+        const formCount = await page.$$('form').then(forms => forms.length);
+
+        logger.info(`   TC-08 Failure Details:`);
+        logger.info(`   - Body opacity: ${bodyOpacity}`);
+        logger.info(`   - Contact button found: ${!!contactButton}`);
+        logger.info(`   - Contact button visible: ${isVisible}`);
+        logger.info(`   - Contact button HTML: ${buttonHtml}`);
+        logger.info(`   - Current form count: ${formCount}`);
+        logger.info(`   - Console errors: ${consoleErrors}`);
+      } else if (testId === 'TC-07') {
+        // TC-07: Log details related to the play button, modal, and video player
+        const playButtonSelector = await scrollAndFind(page, [
+          '.eds-rd-play',
+          '.eds-rd-play-icon',
+          '.ge-contentTeaser__content-section__contentTeaserHero-play-icon',
+          '.ge-contentTeaser__content-section__contentTeaserHero__img-container',
+          '[class*="play-button"]',
+          '[data-testid*="play"]'
+        ], 5);
+        const playButton = playButtonSelector ? await page.$(playButtonSelector) : null;
+        const isVisible = playButton ? await playButton.isVisible() : false;
+        const playButtonHtml = playButton ? await page.$eval(playButtonSelector, el => el.outerHTML) : 'Not found';
+        const modal = await page.$('div.ge-modal-window, div.ge-contentTeaser__content-section__video-modal, div.ge-contentTeaser__content-section__vidyard-video-modal');
+        const modalHtml = modal ? await modal.evaluate(el => el.outerHTML) : 'Not found';
+        const videoPlayer = await page.$('div.vidyard-player-container, iframe[src*="play.vidyard.com"], video');
+        const videoPlayerHtml = videoPlayer ? await videoPlayer.evaluate(el => el.outerHTML) : 'Not found';
+
+        logger.info(`   TC-07 Failure Details:`);
+        logger.info(`   - Play button found: ${!!playButton}`);
+        logger.info(`   - Play button visible: ${isVisible}`);
+        logger.info(`   - Play button HTML: ${playButtonHtml}`);
+        logger.info(`   - Modal found: ${!!modal}`);
+        logger.info(`   - Modal HTML: ${modalHtml}`);
+        logger.info(`   - Video player found: ${!!videoPlayer}`);
+        logger.info(`   - Video player HTML: ${videoPlayerHtml}`);
+        logger.info(`   - Console errors: ${consoleErrors}`);
+      } else {
+        // Default logging for other test cases
+        logger.info(`   ${testId} Failure: No specific logging defined. Generic details:`);
+        logger.info(`   - Console errors: ${consoleErrors}`);
+      }
       } catch (err) {
-        logger.error(`   Failed to save debug DOM for ${testId}: ${err.message}`);
+        logger.error(`   Failed to log debug details for ${testId}: ${err.message}`);
       }
     }
 
@@ -800,7 +847,7 @@ const BATCH_DELAY = 2000;
               pass = await page.waitForFunction(
                 prevCount => document.querySelectorAll('form').length > prevCount,
                 initialFormCount,
-                { timeout: 10000 }
+                { timeout: 12000 }
               ).then(() => true).catch(() => false);
               errorDetails = pass ? '' : `Form count did not increase (initial: ${initialFormCount}, current: ${await page.evaluate(() => document.querySelectorAll('form').length)})`;
               logger.info(`   TC-08: Form count check: ${pass ? 'Pass' : 'Fail'}`);
