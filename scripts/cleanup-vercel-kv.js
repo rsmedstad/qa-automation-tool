@@ -5,10 +5,10 @@ const KV_REST_API_TOKEN = process.env.KV_REST_API_TOKEN;
 const CUTOFF_DAYS = 60;
 
 /**
- * Calls the Upstash /scan endpoint to page through your KV.
- * Returns { keys: string[], cursor: string }.
+ * Calls the Upstash /scan endpoint.
+ * cursor must be a number; returns { keys: string[], cursor: number }.
  */
-async function listKeys(cursor = '0') {
+async function listKeys(cursor = 0) {
   const url = `${KV_REST_API_URL}/scan`;
   const payload = {
     cursor,
@@ -25,12 +25,15 @@ async function listKeys(cursor = '0') {
     },
     body: JSON.stringify(payload)
   });
+
   if (!res.ok) {
     const body = await res.text();
     throw new Error(`SCAN failed: ${res.status} ${res.statusText} – ${body}`);
   }
+
   const { result, cursor: nextCursor } = await res.json();
-  return { keys: result, cursor: nextCursor };
+  // Upstash returns nextCursor as a string sometimes, convert to number
+  return { keys: result, cursor: Number(nextCursor) };
 }
 
 async function getKeyValue(key) {
@@ -42,7 +45,7 @@ async function getKeyValue(key) {
     const body = await res.text();
     throw new Error(`GET ${key} failed: ${res.status} ${res.statusText} – ${body}`);
   }
-  return res.json(); // { result: "…string…" }
+  return res.json(); // { result: "..." }
 }
 
 async function batchDeleteKeys(keys) {
@@ -68,12 +71,12 @@ async function batchDeleteKeys(keys) {
 async function cleanup() {
   console.log('Starting Vercel KV cleanup...');
   const cutoffTime = Date.now() - CUTOFF_DAYS * 24 * 60 * 60 * 1000;
-  let cursor = '0';
+  let cursor = 0;
   let totalDeleted = 0;
 
   try {
     do {
-      const { keys, cursor: next } = await listKeys(cursor);
+      const { keys, cursor: nextCursor } = await listKeys(cursor);
       const toDelete = [];
 
       for (const key of keys) {
@@ -94,8 +97,8 @@ async function cleanup() {
         const deleted = await batchDeleteKeys(toDelete);
         totalDeleted += deleted.length;
       }
-      cursor = next;
-    } while (cursor !== '0');
+      cursor = nextCursor;
+    } while (cursor !== 0);
 
     console.log(`Cleanup complete. Total keys deleted: ${totalDeleted}`);
   } catch (err) {
