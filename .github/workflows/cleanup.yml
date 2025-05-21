@@ -24,8 +24,9 @@ jobs:
 
       - name: Cleanup Vercel KV
         run: |
-          npm install node-fetch@2
+          npm install  # installs node-fetch@^3 from package.json
           node scripts/cleanup-vercel-kv.js
+
 
       - name: Cleanup Supabase
         run: |
