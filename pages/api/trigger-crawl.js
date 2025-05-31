@@ -61,7 +61,8 @@ export default async function handler(req, res) {
       owner: 'rsmedstad',
       repo: 'qa-automation-tool',
       workflow_id: 'run-qa.yml',
-      ref: 'main',
+
+      ref: 'preview', // changed from 'main' to 'preview' for preview branch workflow dispatch
       inputs: {
         initiator,
         file_url: blob.url, // updated to match workflow input
