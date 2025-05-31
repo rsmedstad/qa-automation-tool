@@ -7,13 +7,27 @@
   • Uses addRandomSuffix to avoid blob filename conflicts
 ───────────────────────────────────────────────────────────────────────────────*/
 
-async function uploadFileToStorage(fileBuffer) {
+// Utility to select environment-aware storage config
+function getBlobConfig() {
+  const isPreview = process.env.VERCEL_ENV === 'preview';
+  return {
+    bucket: isPreview ? process.env.TEST_STORAGE_BUCKET : process.env.STORAGE_BUCKET,
+    token: isPreview ? process.env.TEST_BLOB_READ_WRITE_TOKEN : process.env.BLOB_READ_WRITE_TOKEN,
+    envLabel: isPreview ? 'PREVIEW' : 'PRODUCTION',
+  };
+}
+
+async function uploadFileToStorage(fileBuffer, destPath = 'input.xlsx') {
   const { put } = await import('@vercel/blob');
-  const blob = await put('input.xlsx', fileBuffer, {
+  const { token, envLabel, bucket } = getBlobConfig();
+  console.log(`[${envLabel}] Uploading to bucket: ${bucket}, using token: ${token ? 'SET' : 'NOT SET'}`);
+  if (!token) throw new Error('Blob storage token is not set in the environment');
+  const fullDestPath = bucket ? `${bucket}/${destPath}` : destPath;
+  const blob = await put(fullDestPath, fileBuffer, {
     access: 'public',
-    token: process.env.BLOB_READ_WRITE_TOKEN,
+    token,
     addRandomSuffix: true,
-    allowOverwrite: true, // Added to enable overwriting
+    allowOverwrite: true,
   });
   return blob.url;
 }

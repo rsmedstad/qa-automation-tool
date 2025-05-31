@@ -82,6 +82,16 @@ const HTTP_REDIRECT = [301, 302];
 const CONCURRENCY = 3;
 const BATCH_DELAY = 2000;
 
+// Utility to select environment-aware storage config
+function getBlobConfig() {
+  const isPreview = process.env.VERCEL_ENV === 'preview';
+  return {
+    bucket: isPreview ? process.env.TEST_STORAGE_BUCKET : process.env.STORAGE_BUCKET,
+    token: isPreview ? process.env.TEST_BLOB_READ_WRITE_TOKEN : process.env.BLOB_READ_WRITE_TOKEN,
+    envLabel: isPreview ? 'PREVIEW' : 'PRODUCTION',
+  };
+}
+
 // Main execution wrapped in an IIFE for async handling
 (async () => {
   try {
@@ -334,8 +344,10 @@ const BATCH_DELAY = 2000;
 
     // Upload file to Vercel Blob with retry mechanism and enhanced error handling
     async function uploadFile(filePath, destPath, retries = 3) {
-      if (!process.env.BLOB_READ_WRITE_TOKEN) {
-        throw new Error('BLOB_READ_WRITE_TOKEN is not set in the environment');
+      const { token, envLabel, bucket } = getBlobConfig();
+      logger.info(`[${envLabel}] Uploading to bucket: ${bucket}, using token: ${token ? 'SET' : 'NOT SET'}`);
+      if (!token) {
+        throw new Error('Blob storage token is not set in the environment');
       }
       if (!fs.existsSync(filePath)) {
         throw new Error(`File not found for upload: ${filePath}`);
@@ -344,13 +356,15 @@ const BATCH_DELAY = 2000;
       for (let attempt = 1; attempt <= retries; attempt++) {
         try {
           const fileBuffer = fs.readFileSync(filePath);
-          const blob = await put(destPath, fileBuffer, {
+          // If bucket is needed in destPath, prepend it
+          const fullDestPath = bucket ? `${bucket}/${destPath}` : destPath;
+          const blob = await put(fullDestPath, fileBuffer, {
             access: 'public',
-            token: process.env.BLOB_READ_WRITE_TOKEN,
+            token,
             allowOverwrite: true,
           });
           fs.unlinkSync(filePath);
-          logger.info(`Uploaded ${destPath} to Vercel Blob: ${blob.url}`);
+          logger.info(`Uploaded ${fullDestPath} to Vercel Blob: ${blob.url}`);
           return blob.url;
         } catch (error) {
           lastError = error;

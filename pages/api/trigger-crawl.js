@@ -4,6 +4,15 @@ import { put } from '@vercel/blob';
 import { Octokit } from '@octokit/rest';
 import { v4 as uuidv4 } from 'uuid';
 
+function getBlobConfig() {
+  const isPreview = process.env.VERCEL_ENV === 'preview';
+  return {
+    bucket: isPreview ? process.env.TEST_STORAGE_BUCKET : process.env.STORAGE_BUCKET,
+    token: isPreview ? process.env.TEST_BLOB_READ_WRITE_TOKEN : process.env.BLOB_READ_WRITE_TOKEN,
+    envLabel: isPreview ? 'PREVIEW' : 'PRODUCTION',
+  };
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ message: 'Method not allowed' });
@@ -37,11 +46,13 @@ export default async function handler(req, res) {
 
     const buffer = await workbook.xlsx.writeBuffer();
 
-    const blob = await put('input.xlsx', buffer, {
+    const { token, envLabel, bucket } = getBlobConfig();
+    console.log(`[${envLabel}] Uploading to bucket: ${bucket}, using token: ${token ? 'SET' : 'NOT SET'}`);
+    const blob = await put(bucket ? `${bucket}/input.xlsx` : 'input.xlsx', buffer, {
       access: 'public',
-      token: process.env.BLOB_READ_WRITE_TOKEN,
+      token,
       addRandomSuffix: true,
-      allowOverwrite: true, // Added to enable overwriting
+      allowOverwrite: true,
     });
 
     const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
