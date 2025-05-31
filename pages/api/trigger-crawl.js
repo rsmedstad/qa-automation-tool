@@ -64,7 +64,7 @@ export default async function handler(req, res) {
       ref: 'main',
       inputs: {
         initiator,
-        fileUrl: blob.url,
+        file_url: blob.url, // updated to match workflow input
         env: process.env.VERCEL_ENV || 'production', // Pass environment context
       },
     });
