@@ -141,7 +141,9 @@ export default async function handler(req, res) {
           failed_urls: detailedData.failedUrls || [],
           failed_tests: detailedData.testFailureSummary || {},
           screenshot_paths: detailedData.screenshot_paths || [],
-          video_paths: detailedData.video_paths || []
+          video_paths: detailedData.video_paths || [],
+          // Add environment property for filtering
+          environment: detailedData.environment || 'production'
         };
       } catch (runError) {
         console.error(`Error processing run ${run.id}:`, runError.message);
@@ -166,10 +168,8 @@ export default async function handler(req, res) {
     let filteredRuns = validRuns;
     if (envFilter) {
       filteredRuns = validRuns.filter(run => {
-        // Try to match environment from summary.json or fallback to production
-        if (run.environment) return run.environment === envFilter;
-        // If not present, default to showing only production if requested
-        return envFilter === 'production';
+        // Filter by environment property (default to production if missing)
+        return run.environment === envFilter;
       });
       console.log(`Filtered runs by environment: ${envFilter} → ${filteredRuns.length} runs`);
     }
