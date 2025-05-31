@@ -57,12 +57,12 @@ export default async function handler(req, res) {
       owner: 'rsmedstad',
       repo: 'qa-automation-tool',
       workflow_id: 'run-qa.yml',
-      ref: 'main',
+      ref: process.env.VERCEL_ENV === 'preview' ? 'preview' : 'main', // dynamic branch selection
       inputs: {
         initiator,
-        file_url: fileUrl, // updated to match workflow input
-        capture_video: captureVideo ? 'true' : 'false', // updated to match workflow input
-        run_env: process.env.VERCEL_ENV || 'production', // renamed from env to run_env
+        file_url: fileUrl,
+        capture_video: captureVideo ? 'true' : 'false',
+        run_env: process.env.VERCEL_ENV || 'production',
       },
     });
 
