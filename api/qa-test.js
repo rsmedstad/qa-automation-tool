@@ -202,7 +202,7 @@ function getBlobConfig() {
         environment
       });
     if (testRunError) {
-      logger.error('Error creating test run:', testRunError.message || testRunError);
+      logger.error('Error creating test run:', JSON.stringify(testRunError, null, 2));
       process.exit(1);
     }
     logger.info(`Test Run created with ID: ${runId}`);
