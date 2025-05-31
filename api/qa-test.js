@@ -20,16 +20,28 @@
   • Added survey handling mechanisms to block and dismiss survey pop-ups
 ──────────────────────────────────────────────────────────────────────────────*/
 
-import ExcelJS from 'exceljs';
+// Logger setup (Winston)
+const winston = require('winston');
+const logger = winston.createLogger({
+  level: 'info',
+  format: winston.format.combine(
+    winston.format.timestamp(),
+    winston.format.printf(({ timestamp, level, message }) => `${timestamp} [${level.toUpperCase()}] ${message}`)
+  ),
+  transports: [
+    new winston.transports.Console()
+  ]
+});
+
+const fs = require('fs');
+const path = require('path');
+const ExcelJS = require('exceljs');
 import { chromium } from 'playwright';
-import fs from 'fs';
-import path from 'path';
 import { createClient } from '@supabase/supabase-js';
 import { put } from '@vercel/blob';
 import fetch from 'node-fetch';
 import pTimeout from 'p-timeout';
 import { v4 as uuidv4 } from 'uuid';
-import { createLogger, transports, format } from 'winston';
 
 // Load environment variables from .env file
 import 'dotenv/config';
@@ -49,16 +61,6 @@ process.on('uncaughtException', (err) => {
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 logger.info(`[ENV DEBUG] Supabase URL: ${process.env.SUPABASE_URL}`);
 logger.info(`[ENV DEBUG] Supabase Key starts with: ${process.env.SUPABASE_SERVICE_ROLE_KEY?.slice(0, 8)}`);
-
-// Initialize logger with Winston for structured logging
-const logger = createLogger({
-  level: 'info',
-  format: format.combine(format.timestamp(), format.json()),
-  transports: [
-    new transports.Console(),
-    new transports.File({ filename: 'qa-test.log' })
-  ],
-});
 
 // Constants for configuration
 const DEFAULT_TIMEOUT = 10000;
@@ -114,6 +116,12 @@ function getBlobConfig() {
 
     // Read Excel input file containing URLs and test data
     logger.info('Reading URLs and data from Excel file...');
+    if (!fs.existsSync(inputFile)) {
+      logger.error(`Input file not found: ${inputFile}`);
+      process.exit(1);
+    } else {
+      logger.info(`Input file found: ${inputFile}`);
+    }
     const inputWorkbook = new ExcelJS.Workbook();
     await inputWorkbook.xlsx.readFile(inputFile);
 
@@ -160,6 +168,8 @@ function getBlobConfig() {
       logger.error('No URLs found.');
       process.exit(1);
     }
+
+    logger.info(`Loaded ${urls.length} URLs from input file.`);
 
     // Define all possible test IDs for reference
     const allTestIds = [
