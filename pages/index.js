@@ -167,11 +167,22 @@ export default function Dashboard() {
   };
 
   useEffect(() => {
+    // Determine environment for filtering runs
+    let env = 'production';
+    if (typeof window !== 'undefined') {
+      // Use Vercel's NEXT_PUBLIC_VERCEL_ENV if available, else fallback to hostname
+      if (process.env.NEXT_PUBLIC_VERCEL_ENV) {
+        if (process.env.NEXT_PUBLIC_VERCEL_ENV === 'preview') env = 'preview';
+        else if (process.env.NEXT_PUBLIC_VERCEL_ENV === 'production') env = 'production';
+      } else if (window.location.hostname.includes('preview')) {
+        env = 'preview';
+      }
+    }
     const fetchRuns = async (retryCount = 0) => {
       setRunsLoading(true);
       console.log('Fetching runs at:', new Date().toISOString());
       try {
-        const res = await fetch(`/api/get-runs?cache_bust=${Date.now()}`, {
+        const res = await fetch(`/api/get-runs?env=${env}&cache_bust=${Date.now()}`, {
           headers: { 'Cache-Control': 'no-cache' },
         });
         if (!res.ok) {
@@ -1023,7 +1034,7 @@ export default function Dashboard() {
                         <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
                       </svg>
                     ) : (
-                      <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="currentColor">
+                      <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 0 24 24" width="24px" fill="currentColor">
                         <path d="M200-200v-240h80v160h160v80H200Zm480-320v-160H520v-80h240v240h-80Z"/>
                       </svg>
                     )}
