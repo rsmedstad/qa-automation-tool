@@ -202,7 +202,19 @@ function getBlobConfig() {
         environment
       });
     if (testRunError) {
-      logger.error('Error creating test run:', JSON.stringify(testRunError, null, 2));
+      let errorMsg = '[No error details]';
+      if (testRunError) {
+        if (typeof testRunError === 'object') {
+          try {
+            errorMsg = JSON.stringify(testRunError, null, 2);
+          } catch (e) {
+            errorMsg = testRunError.message || String(testRunError);
+          }
+        } else {
+          errorMsg = String(testRunError);
+        }
+      }
+      logger.error('Error creating test run:', errorMsg);
       process.exit(1);
     }
     logger.info(`Test Run created with ID: ${runId}`);
@@ -222,7 +234,19 @@ function getBlobConfig() {
         environment
       });
     if (progressError) {
-      logger.error('Error creating crawl progress:', progressError.message || progressError);
+      let errorMsg = '[No error details]';
+      if (progressError) {
+        if (typeof progressError === 'object') {
+          try {
+            errorMsg = JSON.stringify(progressError, null, 2);
+          } catch (e) {
+            errorMsg = progressError.message || String(progressError);
+          }
+        } else {
+          errorMsg = String(progressError);
+        }
+      }
+      logger.error('Error creating crawl progress:', errorMsg);
     }
 
     // Set up directories for screenshots, videos, and debug logs
