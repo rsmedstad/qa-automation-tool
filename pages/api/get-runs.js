@@ -162,7 +162,18 @@ export default async function handler(req, res) {
       consumed: initialRateLimit.data.rate.remaining - finalRateLimit.data.rate.remaining
     });
 
-    res.status(200).json(validRuns);
+    const envFilter = req.query.env;
+    let filteredRuns = validRuns;
+    if (envFilter) {
+      filteredRuns = validRuns.filter(run => {
+        // Try to match environment from summary.json or fallback to production
+        if (run.environment) return run.environment === envFilter;
+        // If not present, default to showing only production if requested
+        return envFilter === 'production';
+      });
+      console.log(`Filtered runs by environment: ${envFilter} → ${filteredRuns.length} runs`);
+    }
+    res.status(200).json(filteredRuns);
   } catch (error) {
     console.error('Error in /api/get-runs:', error.message, error.stack);
     if (error.status === 403 && error.message.includes('rate limit exceeded')) {

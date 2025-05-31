@@ -20,8 +20,19 @@
   • Added survey handling mechanisms to block and dismiss survey pop-ups
 ──────────────────────────────────────────────────────────────────────────────*/
 
+import winston from 'winston';
+import fs from 'fs';
+import path from 'path';
+import ExcelJS from 'exceljs';
+import { chromium } from 'playwright';
+import { createClient } from '@supabase/supabase-js';
+import { put } from '@vercel/blob';
+import fetch from 'node-fetch';
+import pTimeout from 'p-timeout';
+import { v4 as uuidv4 } from 'uuid';
+import 'dotenv/config';
+
 // Logger setup (Winston)
-const winston = require('winston');
 const logger = winston.createLogger({
   level: 'info',
   format: winston.format.combine(
@@ -32,19 +43,6 @@ const logger = winston.createLogger({
     new winston.transports.Console()
   ]
 });
-
-const fs = require('fs');
-const path = require('path');
-const ExcelJS = require('exceljs');
-import { chromium } from 'playwright';
-import { createClient } from '@supabase/supabase-js';
-import { put } from '@vercel/blob';
-import fetch from 'node-fetch';
-import pTimeout from 'p-timeout';
-import { v4 as uuidv4 } from 'uuid';
-
-// Load environment variables from .env file
-import 'dotenv/config';
 
 // Handle uncaught errors to prevent silent failures
 process.on('unhandledRejection', (reason, promise) => {
@@ -85,6 +83,10 @@ const MOBILE_VIEWPORT = { width: 375, height: 667 };
 const HTTP_REDIRECT = [301, 302];
 const CONCURRENCY = 3;
 const BATCH_DELAY = 2000;
+
+// Helper to get environment label
+const environment = process.env.VERCEL_ENV || 'production';
+logger.info(`[ENV DEBUG] Environment: ${environment}`);
 
 // Utility to select environment-aware storage config
 function getBlobConfig() {
@@ -164,6 +166,9 @@ function getBlobConfig() {
       data: { region: row['region'] || 'N/A' }
     }));
 
+    logger.info(`[DEBUG] URLs loaded: ${urls.length}`);
+    logger.info(`[DEBUG] First 3 URLs: ${urls.slice(0, 3).map(u => u.url).join(', ')}`);
+
     if (!urls.length) {
       logger.error('No URLs found.');
       process.exit(1);
@@ -193,7 +198,8 @@ function getBlobConfig() {
       .insert({
         run_id: runId,
         initiated_by: initiatedBy,
-        note: 'QA test run initiated via script'
+        note: 'QA test run initiated via script',
+        environment
       });
     if (testRunError) {
       logger.error('Error creating test run:', testRunError.message || testRunError);
@@ -212,7 +218,8 @@ function getBlobConfig() {
         urls_completed: 0,
         started_at: startTime,
         status: 'running',
-        status_summary: 'Your test has started.'
+        status_summary: 'Your test has started.',
+        environment
       });
     if (progressError) {
       logger.error('Error creating crawl progress:', progressError.message || progressError);
@@ -447,7 +454,8 @@ function getBlobConfig() {
           result,
           error_details: errorDetails,
           screenshot_path: screenshotUrl,
-          video_path: videoUrl
+          video_path: videoUrl,
+          environment
         });
       if (error) logger.error(`Error inserting test result for ${testId} on ${url}:`, error.message || error);
     }
@@ -1233,7 +1241,8 @@ function getBlobConfig() {
       failedUrls: failedUrlsList,
       urlResults: urlResults,
       screenshot_paths: allScreenshotUrls,
-      video_paths: allVideoUrls
+      video_paths: allVideoUrls,
+      environment // <-- add environment to summary
     };
 
     const summaryFilePath = 'summary.json';
