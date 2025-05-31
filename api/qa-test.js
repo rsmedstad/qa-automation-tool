@@ -47,6 +47,8 @@ process.on('uncaughtException', (err) => {
 
 // Initialize Supabase client for storing test results
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+logger.info(`[ENV DEBUG] Supabase URL: ${process.env.SUPABASE_URL}`);
+logger.info(`[ENV DEBUG] Supabase Key starts with: ${process.env.SUPABASE_SERVICE_ROLE_KEY?.slice(0, 8)}`);
 
 // Initialize logger with Winston for structured logging
 const logger = createLogger({

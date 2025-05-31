@@ -64,9 +64,8 @@ export default async function handler(req, res) {
       ref: 'main',
       inputs: {
         initiator,
-        file_url: blob.url,
-        passphrase: process.env.QA_PASSPHRASE,
-        capture_video: 'false'
+        fileUrl: blob.url,
+        env: process.env.VERCEL_ENV || 'production', // Pass environment context
       },
     });
 

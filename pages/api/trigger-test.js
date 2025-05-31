@@ -60,9 +60,9 @@ export default async function handler(req, res) {
       ref: 'main',
       inputs: {
         initiator,
-        file_url: fileUrl,
-        passphrase: process.env.QA_PASSPHRASE,
-        capture_video: String(captureVideo === true)
+        fileUrl,
+        captureVideo: captureVideo ? 'true' : 'false',
+        env: process.env.VERCEL_ENV || 'production', // Pass environment context
       },
     });
 
