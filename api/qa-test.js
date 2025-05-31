@@ -20,19 +20,29 @@
   • Added survey handling mechanisms to block and dismiss survey pop-ups
 ──────────────────────────────────────────────────────────────────────────────*/
 
-import ExcelJS from 'exceljs';
-import { chromium } from 'playwright';
+import winston from 'winston';
 import fs from 'fs';
 import path from 'path';
+import ExcelJS from 'exceljs';
+import { chromium } from 'playwright';
 import { createClient } from '@supabase/supabase-js';
 import { put } from '@vercel/blob';
 import fetch from 'node-fetch';
 import pTimeout from 'p-timeout';
 import { v4 as uuidv4 } from 'uuid';
-import { createLogger, transports, format } from 'winston';
-
-// Load environment variables from .env file
 import 'dotenv/config';
+
+// Logger setup (Winston)
+const logger = winston.createLogger({
+  level: 'info',
+  format: winston.format.combine(
+    winston.format.timestamp(),
+    winston.format.printf(({ timestamp, level, message }) => `${timestamp} [${level.toUpperCase()}] ${message}`)
+  ),
+  transports: [
+    new winston.transports.Console()
+  ]
+});
 
 // Handle uncaught errors to prevent silent failures
 process.on('unhandledRejection', (reason, promise) => {
@@ -47,16 +57,8 @@ process.on('uncaughtException', (err) => {
 
 // Initialize Supabase client for storing test results
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
-
-// Initialize logger with Winston for structured logging
-const logger = createLogger({
-  level: 'info',
-  format: format.combine(format.timestamp(), format.json()),
-  transports: [
-    new transports.Console(),
-    new transports.File({ filename: 'qa-test.log' })
-  ],
-});
+logger.info(`[ENV DEBUG] Supabase URL: ${process.env.SUPABASE_URL}`);
+logger.info(`[ENV DEBUG] Supabase Key starts with: ${process.env.SUPABASE_SERVICE_ROLE_KEY?.slice(0, 8)}`);
 
 // Constants for configuration
 const DEFAULT_TIMEOUT = 10000;
@@ -82,6 +84,20 @@ const HTTP_REDIRECT = [301, 302];
 const CONCURRENCY = 3;
 const BATCH_DELAY = 2000;
 
+// Helper to get environment label
+const environment = process.env.VERCEL_ENV || 'production';
+logger.info(`[ENV DEBUG] Environment: ${environment}`);
+
+// Utility to select environment-aware storage config
+function getBlobConfig() {
+  const isPreview = process.env.VERCEL_ENV === 'preview';
+  return {
+    bucket: isPreview ? process.env.TEST_STORAGE_BUCKET : process.env.STORAGE_BUCKET,
+    token: isPreview ? process.env.TEST_BLOB_READ_WRITE_TOKEN : process.env.BLOB_READ_WRITE_TOKEN,
+    envLabel: isPreview ? 'PREVIEW' : 'PRODUCTION',
+  };
+}
+
 // Main execution wrapped in an IIFE for async handling
 (async () => {
   try {
@@ -102,6 +118,12 @@ const BATCH_DELAY = 2000;
 
     // Read Excel input file containing URLs and test data
     logger.info('Reading URLs and data from Excel file...');
+    if (!fs.existsSync(inputFile)) {
+      logger.error(`Input file not found: ${inputFile}`);
+      process.exit(1);
+    } else {
+      logger.info(`Input file found: ${inputFile}`);
+    }
     const inputWorkbook = new ExcelJS.Workbook();
     await inputWorkbook.xlsx.readFile(inputFile);
 
@@ -144,10 +166,15 @@ const BATCH_DELAY = 2000;
       data: { region: row['region'] || 'N/A' }
     }));
 
+    logger.info(`[DEBUG] URLs loaded: ${urls.length}`);
+    logger.info(`[DEBUG] First 3 URLs: ${urls.slice(0, 3).map(u => u.url).join(', ')}`);
+
     if (!urls.length) {
       logger.error('No URLs found.');
       process.exit(1);
     }
+
+    logger.info(`Loaded ${urls.length} URLs from input file.`);
 
     // Define all possible test IDs for reference
     const allTestIds = [
@@ -171,10 +198,23 @@ const BATCH_DELAY = 2000;
       .insert({
         run_id: runId,
         initiated_by: initiatedBy,
-        note: 'QA test run initiated via script'
+        note: 'QA test run initiated via script',
+        environment
       });
     if (testRunError) {
-      logger.error('Error creating test run:', testRunError.message || testRunError);
+      let errorMsg = '[No error details]';
+      if (testRunError) {
+        if (typeof testRunError === 'object') {
+          try {
+            errorMsg = JSON.stringify(testRunError, null, 2);
+          } catch (e) {
+            errorMsg = testRunError.message || String(testRunError);
+          }
+        } else {
+          errorMsg = String(testRunError);
+        }
+      }
+      logger.error('Error creating test run:', errorMsg);
       process.exit(1);
     }
     logger.info(`Test Run created with ID: ${runId}`);
@@ -190,10 +230,23 @@ const BATCH_DELAY = 2000;
         urls_completed: 0,
         started_at: startTime,
         status: 'running',
-        status_summary: 'Your test has started.'
+        status_summary: 'Your test has started.',
+        environment
       });
     if (progressError) {
-      logger.error('Error creating crawl progress:', progressError.message || progressError);
+      let errorMsg = '[No error details]';
+      if (progressError) {
+        if (typeof progressError === 'object') {
+          try {
+            errorMsg = JSON.stringify(progressError, null, 2);
+          } catch (e) {
+            errorMsg = progressError.message || String(progressError);
+          }
+        } else {
+          errorMsg = String(progressError);
+        }
+      }
+      logger.error('Error creating crawl progress:', errorMsg);
     }
 
     // Set up directories for screenshots, videos, and debug logs
@@ -334,8 +387,10 @@ const BATCH_DELAY = 2000;
 
     // Upload file to Vercel Blob with retry mechanism and enhanced error handling
     async function uploadFile(filePath, destPath, retries = 3) {
-      if (!process.env.BLOB_READ_WRITE_TOKEN) {
-        throw new Error('BLOB_READ_WRITE_TOKEN is not set in the environment');
+      const { token, envLabel, bucket } = getBlobConfig();
+      logger.info(`[${envLabel}] Uploading to bucket: ${bucket}, using token: ${token ? 'SET' : 'NOT SET'}`);
+      if (!token) {
+        throw new Error('Blob storage token is not set in the environment');
       }
       if (!fs.existsSync(filePath)) {
         throw new Error(`File not found for upload: ${filePath}`);
@@ -344,13 +399,15 @@ const BATCH_DELAY = 2000;
       for (let attempt = 1; attempt <= retries; attempt++) {
         try {
           const fileBuffer = fs.readFileSync(filePath);
-          const blob = await put(destPath, fileBuffer, {
+          // If bucket is needed in destPath, prepend it
+          const fullDestPath = bucket ? `${bucket}/${destPath}` : destPath;
+          const blob = await put(fullDestPath, fileBuffer, {
             access: 'public',
-            token: process.env.BLOB_READ_WRITE_TOKEN,
+            token,
             allowOverwrite: true,
           });
           fs.unlinkSync(filePath);
-          logger.info(`Uploaded ${destPath} to Vercel Blob: ${blob.url}`);
+          logger.info(`Uploaded ${fullDestPath} to Vercel Blob: ${blob.url}`);
           return blob.url;
         } catch (error) {
           lastError = error;
@@ -421,7 +478,8 @@ const BATCH_DELAY = 2000;
           result,
           error_details: errorDetails,
           screenshot_path: screenshotUrl,
-          video_path: videoUrl
+          video_path: videoUrl,
+          environment
         });
       if (error) logger.error(`Error inserting test result for ${testId} on ${url}:`, error.message || error);
     }
@@ -1207,7 +1265,8 @@ const BATCH_DELAY = 2000;
       failedUrls: failedUrlsList,
       urlResults: urlResults,
       screenshot_paths: allScreenshotUrls,
-      video_paths: allVideoUrls
+      video_paths: allVideoUrls,
+      environment // <-- add environment to summary
     };
 
     const summaryFilePath = 'summary.json';

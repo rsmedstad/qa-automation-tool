@@ -7,13 +7,27 @@
   • Uses addRandomSuffix to avoid blob filename conflicts
 ───────────────────────────────────────────────────────────────────────────────*/
 
-async function uploadFileToStorage(fileBuffer) {
+// Utility to select environment-aware storage config
+function getBlobConfig() {
+  const isPreview = process.env.VERCEL_ENV === 'preview';
+  return {
+    bucket: isPreview ? process.env.TEST_STORAGE_BUCKET : process.env.STORAGE_BUCKET,
+    token: isPreview ? process.env.TEST_BLOB_READ_WRITE_TOKEN : process.env.BLOB_READ_WRITE_TOKEN,
+    envLabel: isPreview ? 'PREVIEW' : 'PRODUCTION',
+  };
+}
+
+async function uploadFileToStorage(fileBuffer, destPath = 'input.xlsx') {
   const { put } = await import('@vercel/blob');
-  const blob = await put('input.xlsx', fileBuffer, {
+  const { token, envLabel, bucket } = getBlobConfig();
+  console.log(`[${envLabel}] Uploading to bucket: ${bucket}, using token: ${token ? 'SET' : 'NOT SET'}`);
+  if (!token) throw new Error('Blob storage token is not set in the environment');
+  const fullDestPath = bucket ? `${bucket}/${destPath}` : destPath;
+  const blob = await put(fullDestPath, fileBuffer, {
     access: 'public',
-    token: process.env.BLOB_READ_WRITE_TOKEN,
+    token,
     addRandomSuffix: true,
-    allowOverwrite: true, // Added to enable overwriting
+    allowOverwrite: true,
   });
   return blob.url;
 }
@@ -24,6 +38,11 @@ export default async function handler(req, res) {
   }
 
   const { initiator, passphrase, file, captureVideo } = req.body;
+
+  if (!passphrase) {
+    console.error('No passphrase provided in request body');
+    return res.status(400).json({ message: 'Passphrase is required' });
+  }
 
   if (passphrase !== process.env.QA_PASSPHRASE) {
     return res.status(403).json({ message: 'Invalid passphrase' });
@@ -39,16 +58,19 @@ export default async function handler(req, res) {
     const { Octokit } = await import('@octokit/rest');
     const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
 
+    console.log('Dispatching workflow with passphrase:', passphrase);
+
     await octokit.actions.createWorkflowDispatch({
       owner: 'rsmedstad',
       repo: 'qa-automation-tool',
       workflow_id: 'run-qa.yml',
-      ref: 'main',
+      ref: process.env.VERCEL_ENV === 'preview' ? 'preview' : 'main',
       inputs: {
         initiator,
         file_url: fileUrl,
-        passphrase: process.env.QA_PASSPHRASE,
-        capture_video: String(captureVideo === true)
+        capture_video: captureVideo ? 'true' : 'false',
+        run_env: process.env.VERCEL_ENV || 'production',
+        passphrase,
       },
     });
 

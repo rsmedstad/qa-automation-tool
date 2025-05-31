@@ -141,7 +141,9 @@ export default async function handler(req, res) {
           failed_urls: detailedData.failedUrls || [],
           failed_tests: detailedData.testFailureSummary || {},
           screenshot_paths: detailedData.screenshot_paths || [],
-          video_paths: detailedData.video_paths || []
+          video_paths: detailedData.video_paths || [],
+          // Add environment property for filtering
+          environment: detailedData.environment || 'production'
         };
       } catch (runError) {
         console.error(`Error processing run ${run.id}:`, runError.message);
@@ -162,7 +164,16 @@ export default async function handler(req, res) {
       consumed: initialRateLimit.data.rate.remaining - finalRateLimit.data.rate.remaining
     });
 
-    res.status(200).json(validRuns);
+    const envFilter = req.query.env;
+    let filteredRuns = validRuns;
+    if (envFilter) {
+      filteredRuns = validRuns.filter(run => {
+        // Filter by environment property (default to production if missing)
+        return run.environment === envFilter;
+      });
+      console.log(`Filtered runs by environment: ${envFilter} → ${filteredRuns.length} runs`);
+    }
+    res.status(200).json(filteredRuns);
   } catch (error) {
     console.error('Error in /api/get-runs:', error.message, error.stack);
     if (error.status === 403 && error.message.includes('rate limit exceeded')) {
