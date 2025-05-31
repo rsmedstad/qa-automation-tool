@@ -20,7 +20,7 @@ on:
         required: true
         type: boolean
         default: false
-      env:
+      run_env:
         description: 'Environment to use (prod or test)'
         required: false
         default: 'prod'
@@ -74,7 +74,7 @@ jobs:
       - name: Set environment-specific secrets
         id: set-secrets
         run: |
-          if [ "${{ github.event.inputs.env }}" = "test" ]; then
+          if [ "${{ github.event.inputs.run_env }}" = "test" ]; then
             echo "Using TEST environment secrets"
             echo "SUPABASE_URL=${{ secrets.TEST_SUPABASE_URL }}" >> $GITHUB_ENV
             echo "SUPABASE_SERVICE_ROLE_KEY=${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}" >> $GITHUB_ENV
@@ -85,7 +85,7 @@ jobs:
             echo "SUPABASE_SERVICE_ROLE_KEY=${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" >> $GITHUB_ENV
             echo "BLOB_READ_WRITE_TOKEN=${{ secrets.BLOB_READ_WRITE_TOKEN }}" >> $GITHUB_ENV
           fi
-          echo "Environment: ${{ github.event.inputs.env }}"
+          echo "Environment: ${{ github.event.inputs.run_env }}"
 
       - name: Run QA tests
         # Continue even if script exits with non-zero code (e.g., test failures)

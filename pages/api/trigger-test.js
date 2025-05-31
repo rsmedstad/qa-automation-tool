@@ -62,7 +62,7 @@ export default async function handler(req, res) {
         initiator,
         file_url: fileUrl, // updated to match workflow input
         capture_video: captureVideo ? 'true' : 'false', // updated to match workflow input
-        env: process.env.VERCEL_ENV || 'production',
+        run_env: process.env.VERCEL_ENV || 'production', // renamed from env to run_env
       },
     });
 
