@@ -20,6 +20,11 @@ export default async function handler(req, res) {
 
   const { data, initiator, passphrase } = req.body;
 
+  if (!passphrase) {
+    console.error('No passphrase provided in request body');
+    return res.status(400).json({ message: 'Passphrase is required' });
+  }
+
   if (passphrase !== process.env.QA_PASSPHRASE) {
     return res.status(403).json({ message: 'Invalid passphrase' });
   }
@@ -57,16 +62,17 @@ export default async function handler(req, res) {
 
     const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
     const newRunId = `run-${uuidv4()}`;
+    console.log('Dispatching workflow with passphrase:', passphrase);
     const response = await octokit.actions.createWorkflowDispatch({
       owner: 'rsmedstad',
       repo: 'qa-automation-tool',
       workflow_id: 'run-qa.yml',
-
-      ref: 'preview', // changed from 'main' to 'preview' for preview branch workflow dispatch
+      ref: process.env.VERCEL_ENV === 'preview' ? 'preview' : 'main',
       inputs: {
         initiator,
-        file_url: blob.url, // updated to match workflow input
-        run_env: process.env.VERCEL_ENV || 'production', // renamed from env to run_env
+        file_url: blob.url,
+        run_env: process.env.VERCEL_ENV || 'production',
+        passphrase,
       },
     });
 
