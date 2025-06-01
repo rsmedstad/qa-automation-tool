@@ -181,7 +181,7 @@ export default async function handler(req, res) {
     if (rate >= 10) {
       return res
         .status(429)
-        .json({ messateste: 'Too many requests—please slow down.' });
+        .json({ message: 'Too many requests—please slow down.' });
     }
     await kv.set(rateKey, rate + 1, { ex: 60 });
 
