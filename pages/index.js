@@ -572,9 +572,10 @@ export default function Dashboard() {
   const displayedRuns = showAll ? sortedRuns : sortedRuns.slice(0, 7);
 
   const trendedFailedTests = useMemo(() => {
-    const last30Runs = sortedRuns.slice(0, 16);
+    // Aggregate failures from the last 16 runs
+    const last16Runs = sortedRuns.slice(0, 16);
     const aggregated = {};
-    last30Runs.forEach(run => {
+    last16Runs.forEach(run => {
       if (run.failed_tests) {
         Object.entries(run.failed_tests).forEach(([testId, count]) => {
           aggregated[testId] = (aggregated[testId] || 0) + count;
