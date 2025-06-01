@@ -921,7 +921,7 @@ export default function Dashboard() {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-8 gap-6">
-              <div className="md:col-span-3 p-4 sm:p-6 bg-white dark:bg-gray-800 rounded-xl shadow-lg flex flex-col h-[500px]">
+              <div className="md:col-span-3 p-4 sm:p-6 bg-white dark:bg-gray-800 rounded-xl shadow-lg flex flex-col sm:h-[500px] h-auto">
                 <h2 className="text-xl font-semibold mb-4 text-gray-700 dark:text-gray-300">Request Ad-Hoc Crawl</h2>
                 <form onSubmit={handleTestSubmit} className="flex flex-col flex-grow space-y-4">
                   <div>
@@ -973,7 +973,7 @@ export default function Dashboard() {
                       Capture Video for Failed URLs
                     </label>
                   </div>
-                  <div className="flex items-center mt-auto">
+                  <div className="flex flex-col sm:flex-row items-center mt-auto space-y-2 sm:space-y-0 sm:space-x-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" htmlFor="file">
                         Select input.xlsx
@@ -990,7 +990,7 @@ export default function Dashboard() {
                     <button
                       type="submit"
                       disabled={submissionStatus === 'loading'}
-                      className="ml-auto px-5 py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800 disabled:opacity-60"
+                      className="sm:ml-auto px-5 py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800 disabled:opacity-60"
                     >
                       {submissionStatus === 'loading' ? 'Submitting...' : 'Run Test'}
                     </button>
