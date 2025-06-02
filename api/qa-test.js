@@ -742,9 +742,8 @@ function getBlobConfig() {
               break;
             }
             case 'TC-02': {
-              // Verify hero text is visible on mobile viewport
-              const heroText = await page.$('div[id*="ge-homepage-hero"] .ge-homepage-hero-v2__text-content, section.ge-homepage-hero-v2-component .ge-homepage-hero-v2__text-content');
-              pass = heroText && await heroText.isVisible();
+              // Verify hero text is visible on mobile viewport for all supported hero components
+              pass = await heroTextVisible(page);
               errorDetails = pass ? '' : 'Hero text not found or not visible on mobile viewport';
               break;
             }
