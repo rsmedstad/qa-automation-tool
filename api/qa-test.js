@@ -32,6 +32,7 @@ import fetch from 'node-fetch';
 import pTimeout from 'p-timeout';
 import { v4 as uuidv4 } from 'uuid';
 import 'dotenv/config';
+import { heroTextVisible } from '../utils/hero.js';
 
 // Logger setup (Winston)
 const logger = winston.createLogger({
@@ -735,9 +736,8 @@ function getBlobConfig() {
 
           switch (id) {
             case 'TC-01': {
-              // Verify hero text is visible on the homepage
-              const heroText = await page.$('section.ge-homepage-hero-v2-component .ge-homepage-hero-v2__text-content');
-              pass = heroText && await heroText.isVisible();
+              // Verify hero text is visible on supported hero components
+              pass = await heroTextVisible(page);
               errorDetails = pass ? '' : 'Hero text not found or not visible in hero section';
               break;
             }
