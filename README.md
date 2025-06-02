@@ -77,7 +77,7 @@ The QA Automation Tool:
 | **TC-04** | Navigation Presence        | `<nav>` or class containing “nav”                    |
 | **TC-05** | Main Content               | `<main>` or class containing “main”                  |
 | **TC-06** | Footer Presence            | `<footer>` or class containing “footer”              |
-| **TC-07** | Main Video Loads           | `<video>` or Vidyard iframe; play button opens modal |
+| **TC-07** | Main Video & Carousel      | `<video>` or Vidyard iframe; play button opens modal; carousel videos show no "Video Not Found" |
 | **TC-08** | Contact Form Opens         | “Contact” button launches form overlay               |
 | **TC-09** | Rendering Error Check      | No “A rendering error occurred” text                 |
 | **TC-10** | Gatekeeper Redirect        | Incognito + “Yes” click yields 200 status            |
