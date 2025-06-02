@@ -1,3 +1,4 @@
+// Custom Document to inject global HTML structure and fonts
 import { Html, Head, Main, NextScript } from 'next/document';
 
 export default function Document() {
@@ -17,3 +18,4 @@ export default function Document() {
     </Html>
   );
 }
+

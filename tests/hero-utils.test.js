@@ -1,3 +1,4 @@
+// Unit tests for the hero text visibility helper
 import { heroTextVisible } from '../utils/hero.js';
 
 // Mock isVisible helper

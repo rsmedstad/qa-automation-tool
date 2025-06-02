@@ -1,3 +1,4 @@
+// Removes old records from Supabase tables older than 60 days
 const { createClient } = require('@supabase/supabase-js');
 
 const SUPABASE_URL = process.env.SUPABASE_URL;

@@ -1,3 +1,4 @@
+// Main dashboard page displaying recent runs and chat functionality
 import React, { useEffect, useState, useRef, useMemo } from 'react';
 import Chart from 'chart.js/auto';
 import ChartDataLabels from 'chartjs-plugin-datalabels';

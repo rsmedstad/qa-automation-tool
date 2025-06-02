@@ -1,3 +1,4 @@
+// Integration tests for the Gemini passphrase validation API route
 import express from 'express';
 import request from 'supertest';
 import handler from '../pages/api/validate-gemini-passphrase.js';
