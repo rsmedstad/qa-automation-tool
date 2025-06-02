@@ -72,7 +72,7 @@ The QA Automation Tool:
 | ID      | Name                        | Description                                          |
 |---------|-----------------------------|------------------------------------------------------|
 | **TC-01** | Hero Overlay on Desktop    | Hero text visible at 1920×1080 for homepage, category, product and custom hero banners |
-| **TC-02** | Hero Static on Mobile      | Hero text visible on 375×667 viewport                |
+| **TC-02** | Hero Static on Mobile      | Hero text visible on 375×667 viewport for homepage, category, product and custom hero banners |
 | **TC-03** | Header Presence            | `<header>` or class containing “header”              |
 | **TC-04** | Navigation Presence        | `<nav>` or class containing “nav”                    |
 | **TC-05** | Main Content               | `<main>` or class containing “main”                  |
@@ -87,6 +87,7 @@ The QA Automation Tool:
 | **TC-14** | HTTP Status Code Valid     | Status 200 or valid redirect (301/302)               |
 
 Supported hero components for **TC-01**:
+- `div[id*="ge-homepage-hero"]`
 - `.ge-homepage-hero-v2-component`
 - `.ge-category-hero__container`
 - `.hero-content-intro`
