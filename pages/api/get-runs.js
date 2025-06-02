@@ -1,3 +1,4 @@
+// Retrieves recent GitHub Actions workflow runs and their artifacts
 import NodeCache from 'node-cache';
 
 const cache = new NodeCache({ stdTTL: 300 }); // 5-minute TTL
