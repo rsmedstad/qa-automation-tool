@@ -15,6 +15,7 @@
   • Optimized for performance while preserving visual integrity
   • Includes detailed commentary explaining each function and test case logic
   • Updated TC-07 to scroll play button into view and use broader hover target
+  • Extended TC-07 to validate video carousels when present
   • Updated TC-08 with refined Contact Us button selector targeting hero section
   • Updated TC-13 with simplified submenu wait condition for Ultraschall link
   • Added survey handling mechanisms to block and dismiss survey pop-ups
@@ -83,6 +84,7 @@ const MOBILE_VIEWPORT = { width: 375, height: 667 };
 const HTTP_REDIRECT = [301, 302];
 const CONCURRENCY = 3;
 const BATCH_DELAY = 2000;
+const MAX_CAROUSEL_SLIDES = parseInt(process.env.MAX_CAROUSEL_SLIDES || '5', 10);
 
 // Helper to get environment label
 const environment = process.env.VERCEL_ENV || 'production';
@@ -323,6 +325,26 @@ function getBlobConfig() {
       await locator.scrollIntoViewIfNeeded();
       await locator.click();
       return true;
+    }
+
+    // Advance the video carousel to the next slide if a next-arrow is found
+    async function clickNextCarouselButton(page) {
+      const nextSelectors = [
+        '.ge-product-carousel__arrow--next button',
+        '.ge-product-carousel__arrow--next',
+        '[data-testid="carousel-arrow-next"]',
+        '[aria-label="Next Slide"]',
+        '[aria-label="Next"]'
+      ];
+      for (const sel of nextSelectors) {
+        const btn = await page.$(sel);
+        if (btn) {
+          await btn.click();
+          await page.waitForTimeout(1000);
+          return true;
+        }
+      }
+      return false;
     }
 
     // Log debugging for failed tests
@@ -840,7 +862,28 @@ function getBlobConfig() {
               ).then(() => true).catch(() => false);
               errorDetails = pass ? '' : 'Vidyard player or iframe not found after modal opened';
               logger.info(`   TC-07: Vidyard player check: ${pass ? 'Pass' : 'Fail'}`);
-              if (!pass) await logPageDom(page, url, 'TC-07');
+              if (!pass) {
+                await logPageDom(page, url, 'TC-07');
+                break;
+              }
+
+              const carousel = await page.$('.ge-product-carousel__geslider');
+              if (carousel) {
+                logger.info('   TC-07: Carousel detected, validating slides');
+                for (let i = 0; i < MAX_CAROUSEL_SLIDES; i++) {
+                  const clicked = await clickNextCarouselButton(page);
+                  if (!clicked) break;
+                  const alertText = await page.$eval('.alert-content .alert-title', el => el.textContent).catch(() => '');
+                  if (alertText && alertText.includes('Video Not Found')) {
+                    pass = false;
+                    errorDetails = 'Video Not Found in carousel slide';
+                    logger.warn('   TC-07: Video Not Found in carousel slide');
+                    await logPageDom(page, url, 'TC-07');
+                    break;
+                  }
+                }
+              }
+
               break;
             }
             case 'TC-08': {
