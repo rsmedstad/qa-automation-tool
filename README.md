@@ -48,6 +48,16 @@ The QA Automation Tool:
 
 ---
 
+## Environment Setup
+
+Configure these variables when running locally or in GitHub Actions:
+
+- `BLOB_READ_WRITE_TOKEN` – production storage access token
+- `TEST_BLOB_READ_WRITE_TOKEN` – preview/test storage token
+- Other secrets like `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` and `QA_PASSPHRASE`
+
+---
+
 ## Key Features
 
 ### Dashboard

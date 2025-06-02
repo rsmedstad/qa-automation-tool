@@ -78,7 +78,7 @@ jobs:
             echo "Using TEST environment secrets"
             echo "SUPABASE_URL=${{ secrets.TEST_SUPABASE_URL }}" >> $GITHUB_ENV
             echo "SUPABASE_SERVICE_ROLE_KEY=${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}" >> $GITHUB_ENV
-            echo "BLOB_READ_WRITE_TOKEN=${{ secrets.blobTest_READ_WRITE_TOKEN }}" >> $GITHUB_ENV
+            echo "BLOB_READ_WRITE_TOKEN=${{ secrets.TEST_BLOB_READ_WRITE_TOKEN }}" >> $GITHUB_ENV
           else
             echo "Using PROD environment secrets"
             echo "SUPABASE_URL=${{ secrets.SUPABASE_URL }}" >> $GITHUB_ENV
