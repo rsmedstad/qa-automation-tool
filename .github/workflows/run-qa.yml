@@ -20,10 +20,10 @@ on:
         required: true
         type: boolean
         default: false
-      run_env:
-        description: 'Environment to use (prod or test)'
-        required: false
-        default: 'prod'
+        run_env:
+          description: 'Environment to use (production or preview)'
+          required: false
+          default: 'production'
 
 jobs:
   run-qa-tests:
@@ -75,7 +75,7 @@ jobs:
         id: set-secrets
         run: |
           if [ "${{ github.event.inputs.run_env }}" = "test" ] || [ "${{ github.event.inputs.run_env }}" = "preview" ]; then
-            echo "Using TEST/Preview environment secrets"
+            echo "Using preview environment secrets"
             echo "SUPABASE_URL=${{ secrets.TEST_SUPABASE_URL }}" >> $GITHUB_ENV
             echo "SUPABASE_SERVICE_ROLE_KEY=${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}" >> $GITHUB_ENV
             echo "TEST_BLOB_READ_WRITE_TOKEN=${{ secrets.blobTest_READ_WRITE_TOKEN }}" >> $GITHUB_ENV
@@ -83,7 +83,7 @@ jobs:
             echo "STORAGE_BUCKET=${{ secrets.TEST_STORAGE_BUCKET }}" >> $GITHUB_ENV
             echo "BLOB_READ_WRITE_TOKEN=${{ secrets.blobTest_READ_WRITE_TOKEN }}" >> $GITHUB_ENV
           else
-            echo "Using PROD environment secrets"
+            echo "Using production environment secrets"
             echo "SUPABASE_URL=${{ secrets.SUPABASE_URL }}" >> $GITHUB_ENV
             echo "SUPABASE_SERVICE_ROLE_KEY=${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" >> $GITHUB_ENV
             echo "BLOB_READ_WRITE_TOKEN=${{ secrets.BLOB_READ_WRITE_TOKEN }}" >> $GITHUB_ENV
@@ -91,13 +91,21 @@ jobs:
           fi
           echo "Environment: ${{ github.event.inputs.run_env }}"
 
+      - name: Map run_env to VERCEL_ENV
+        run: |
+          if [ "${{ github.event.inputs.run_env }}" = "prod" ] || [ "${{ github.event.inputs.run_env }}" = "production" ]; then
+            echo "VERCEL_ENV=production" >> $GITHUB_ENV
+          else
+            echo "VERCEL_ENV=preview" >> $GITHUB_ENV
+          fi
+
       - name: Run QA tests
         # Continue even if script exits with non-zero code (e.g., test failures)
         continue-on-error: true
         env:
           BLOB_READ_WRITE_TOKEN: ${{ env.BLOB_READ_WRITE_TOKEN }}
           BLOB_ALLOW_OVERWRITE: 'true'
-          VERCEL_ENV: ${{ github.event.inputs.run_env }}
+          VERCEL_ENV: ${{ env.VERCEL_ENV }}
         run: |
           node api/qa-test.js \
             input.xlsx \

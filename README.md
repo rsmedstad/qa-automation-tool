@@ -53,8 +53,9 @@ The QA Automation Tool:
 ### Dashboard
 
 - **Recent Runs**: pass/fail/N-A counts, trend charts, artifact links  
-- **Ask Gemini**: natural-language queries (passphrase-protected)  
-- **Ad-hoc Execution**: submit name, passphrase, optional Excel; trigger tests immediately  
+- **Ask Gemini**: natural-language queries (passphrase-protected)
+- **Ad-hoc Execution**: submit name, passphrase, optional Excel; trigger tests immediately
+- **Environment Flag**: specify `run_env: preview` for staging or `run_env: production` for live runs
 
 ### Scheduling & Cleanup
 
