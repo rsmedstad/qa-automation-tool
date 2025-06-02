@@ -74,16 +74,20 @@ jobs:
       - name: Set environment-specific secrets
         id: set-secrets
         run: |
-          if [ "${{ github.event.inputs.run_env }}" = "test" ]; then
-            echo "Using TEST environment secrets"
+          if [ "${{ github.event.inputs.run_env }}" = "test" ] || [ "${{ github.event.inputs.run_env }}" = "preview" ]; then
+            echo "Using TEST/Preview environment secrets"
             echo "SUPABASE_URL=${{ secrets.TEST_SUPABASE_URL }}" >> $GITHUB_ENV
             echo "SUPABASE_SERVICE_ROLE_KEY=${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}" >> $GITHUB_ENV
+            echo "TEST_BLOB_READ_WRITE_TOKEN=${{ secrets.blobTest_READ_WRITE_TOKEN }}" >> $GITHUB_ENV
+            echo "TEST_STORAGE_BUCKET=${{ secrets.TEST_STORAGE_BUCKET }}" >> $GITHUB_ENV
+            echo "STORAGE_BUCKET=${{ secrets.TEST_STORAGE_BUCKET }}" >> $GITHUB_ENV
             echo "BLOB_READ_WRITE_TOKEN=${{ secrets.blobTest_READ_WRITE_TOKEN }}" >> $GITHUB_ENV
           else
             echo "Using PROD environment secrets"
             echo "SUPABASE_URL=${{ secrets.SUPABASE_URL }}" >> $GITHUB_ENV
             echo "SUPABASE_SERVICE_ROLE_KEY=${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" >> $GITHUB_ENV
             echo "BLOB_READ_WRITE_TOKEN=${{ secrets.BLOB_READ_WRITE_TOKEN }}" >> $GITHUB_ENV
+            echo "STORAGE_BUCKET=${{ secrets.STORAGE_BUCKET }}" >> $GITHUB_ENV
           fi
           echo "Environment: ${{ github.event.inputs.run_env }}"
 
