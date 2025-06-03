@@ -220,7 +220,8 @@ function getBlobConfig() {
     });
 
     // Create test run entry in Supabase for tracking
-    const runId = `run-${Date.now()}`;
+    const runId = `run-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+    logger.info(`Attempting to insert test run with run_id: ${runId}, initiated_by: ${initiatedBy}, environment: ${environment}`);
     const { error: testRunError } = await supabase
       .from('test_runs')
       .insert({
@@ -230,19 +231,7 @@ function getBlobConfig() {
         environment
       });
     if (testRunError) {
-      let errorMsg = '[No error details]';
-      if (testRunError) {
-        if (typeof testRunError === 'object') {
-          try {
-            errorMsg = JSON.stringify(testRunError, null, 2);
-          } catch (e) {
-            errorMsg = testRunError.message || String(testRunError);
-          }
-        } else {
-          errorMsg = String(testRunError);
-        }
-      }
-      logger.error('Error creating test run:', errorMsg);
+      logger.error('Supabase insert error:', testRunError);
       process.exit(1);
     }
     logger.info(`Test Run created with ID: ${runId}`);
