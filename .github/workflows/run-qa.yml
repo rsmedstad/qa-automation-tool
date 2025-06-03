@@ -28,7 +28,7 @@ on:
 jobs:
   run-qa-tests:
     runs-on: ubuntu-latest
-    # Dynamically set the environment based on run_env
+    # Dynamically set the environment based on run_env; 'test' and 'preview' both use the 'Preview' environment
     environment: ${{ (github.event.inputs.run_env == 'test' || github.event.inputs.run_env == 'preview') && 'Preview' || '' }}
     steps:
       - name: Checkout repository
@@ -88,6 +88,15 @@ jobs:
           fi
           echo "Environment: ${{ github.event.inputs.run_env }}"
 
+      - name: Debug environment variables
+        run: |
+          echo "SUPABASE_URL: $SUPABASE_URL"
+          echo "SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:0:8}..."
+          echo "BLOB_READ_WRITE_TOKEN: ${BLOB_READ_WRITE_TOKEN:0:8}..."
+          echo "STORAGE_BUCKET: $STORAGE_BUCKET"
+          echo "VERCEL_URL: $VERCEL_URL"
+          echo "VERCEL_ENV: $VERCEL_ENV"
+
       - name: Run QA tests
         continue-on-error: true
         env:
@@ -101,7 +110,6 @@ jobs:
             "${{ env.INITIATOR }}" \
             "${{ inputs.capture_video }}"
 
-      # Remaining steps (artifacts, Vercel summary) remain unchanged
       - name: Upload results artifact
         if: always()
         uses: actions/upload-artifact@v4
