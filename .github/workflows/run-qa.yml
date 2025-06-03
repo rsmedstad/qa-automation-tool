@@ -28,12 +28,8 @@ on:
 jobs:
   run-qa-tests:
     runs-on: ubuntu-latest
-    env:
-      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-      BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
-      VERCEL_URL: 'https://qa-automation-tool.vercel.app'
-
+    # Dynamically set the environment based on run_env
+    environment: ${{ (github.event.inputs.run_env == 'test' || github.event.inputs.run_env == 'preview') && 'Preview' || '' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -71,30 +67,28 @@ jobs:
             echo "INITIATOR=${{ inputs.initiator }}" >> $GITHUB_ENV
           fi
 
-      - name: Set environment-specific secrets
-        id: set-secrets
+      - name: Set environment-specific variables
         run: |
           if [ "${{ github.event.inputs.run_env }}" = "test" ] || [ "${{ github.event.inputs.run_env }}" = "preview" ]; then
-            echo "Using TEST/Preview environment secrets"
-            echo "SUPABASE_URL=${{ secrets.TEST_SUPABASE_URL }}" >> $GITHUB_ENV
-            echo "SUPABASE_SERVICE_ROLE_KEY=${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}" >> $GITHUB_ENV
-            echo "TEST_BLOB_READ_WRITE_TOKEN=${{ secrets.TEST_BLOB_READ_WRITE_TOKEN }}" >> $GITHUB_ENV
-            echo "TEST_STORAGE_BUCKET=${{ secrets.TEST_STORAGE_BUCKET }}" >> $GITHUB_ENV
-            echo "STORAGE_BUCKET=${{ secrets.TEST_STORAGE_BUCKET }}" >> $GITHUB_ENV
+            echo "Using Preview environment secrets"
+            echo "SUPABASE_URL=${{ secrets.SUPABASE_URL }}" >> $GITHUB_ENV
+            echo "SUPABASE_SERVICE_ROLE_KEY=${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" >> $GITHUB_ENV
             echo "BLOB_READ_WRITE_TOKEN=${{ secrets.TEST_BLOB_READ_WRITE_TOKEN }}" >> $GITHUB_ENV
+            echo "STORAGE_BUCKET=${{ secrets.TEST_STORAGE_BUCKET }}" >> $GITHUB_ENV
+            echo "VERCEL_URL=https://qa-automation-tool.vercel.app" >> $GITHUB_ENV
             echo "VERCEL_ENV=preview" >> $GITHUB_ENV
           else
-            echo "Using PROD environment secrets"
+            echo "Using PROD repository secrets"
             echo "SUPABASE_URL=${{ secrets.SUPABASE_URL }}" >> $GITHUB_ENV
             echo "SUPABASE_SERVICE_ROLE_KEY=${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" >> $GITHUB_ENV
             echo "BLOB_READ_WRITE_TOKEN=${{ secrets.BLOB_READ_WRITE_TOKEN }}" >> $GITHUB_ENV
             echo "STORAGE_BUCKET=${{ secrets.STORAGE_BUCKET }}" >> $GITHUB_ENV
+            echo "VERCEL_URL=https://qa-automation-tool.vercel.app" >> $GITHUB_ENV
             echo "VERCEL_ENV=production" >> $GITHUB_ENV
           fi
           echo "Environment: ${{ github.event.inputs.run_env }}"
 
       - name: Run QA tests
-        # Continue even if script exits with non-zero code (e.g., test failures)
         continue-on-error: true
         env:
           BLOB_READ_WRITE_TOKEN: ${{ env.BLOB_READ_WRITE_TOKEN }}
@@ -107,6 +101,7 @@ jobs:
             "${{ env.INITIATOR }}" \
             "${{ inputs.capture_video }}"
 
+      # Remaining steps (artifacts, Vercel summary) remain unchanged
       - name: Upload results artifact
         if: always()
         uses: actions/upload-artifact@v4
