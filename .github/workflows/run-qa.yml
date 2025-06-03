@@ -75,6 +75,8 @@ jobs:
             echo "SUPABASE_SERVICE_ROLE_KEY=${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" >> $GITHUB_ENV
             echo "BLOB_READ_WRITE_TOKEN=${{ secrets.TEST_BLOB_READ_WRITE_TOKEN }}" >> $GITHUB_ENV
             echo "STORAGE_BUCKET=${{ secrets.TEST_STORAGE_BUCKET }}" >> $GITHUB_ENV
+            echo "TEST_BLOB_READ_WRITE_TOKEN=${{ secrets.TEST_BLOB_READ_WRITE_TOKEN }}" >> $GITHUB_ENV
+            echo "TEST_STORAGE_BUCKET=${{ secrets.TEST_STORAGE_BUCKET }}" >> $GITHUB_ENV
             echo "VERCEL_URL=https://qa-automation-tool.vercel.app" >> $GITHUB_ENV
             echo "VERCEL_ENV=preview" >> $GITHUB_ENV
           else
