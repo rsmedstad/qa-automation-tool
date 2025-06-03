@@ -19,12 +19,12 @@
   • Updated TC-08 with refined Contact Us button selector targeting hero section
   • Updated TC-13 with simplified submenu wait condition for Ultraschall link
   • Added survey handling mechanisms to block and dismiss survey pop-ups
+  • Enhanced error logging with full error object output
+  • Added minimal insert test to handle nullable fields gracefully
 ──────────────────────────────────────────────────────────────────────────────*/
 
 // --- Environment variable check for Supabase ---
-// eslint-disable-next-line no-console
 const isVercel = !!process.env.VERCEL;
-// eslint-disable-next-line no-console
 const isGithubActions = !!process.env.GITHUB_ACTIONS;
 
 if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
@@ -33,15 +33,10 @@ if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
     : isGithubActions
       ? 'GitHub Actions'
       : 'local shell';
-  // eslint-disable-next-line no-console
   console.error(`\n[ERROR] SUPABASE_URL and/or SUPABASE_SERVICE_ROLE_KEY are missing!`);
-  // eslint-disable-next-line no-console
   console.error(`[INFO] Detected environment: ${envSource}`);
-  // eslint-disable-next-line no-console
   console.error(`[INFO] SUPABASE_URL: ${process.env.SUPABASE_URL ? 'SET' : 'NOT SET'}`);
-  // eslint-disable-next-line no-console
   console.error(`[INFO] SUPABASE_SERVICE_ROLE_KEY: ${process.env.SUPABASE_SERVICE_ROLE_KEY ? 'SET' : 'NOT SET'}`);
-  // eslint-disable-next-line no-console
   console.error(`\nTo fix: Set these environment variables in your ${envSource} environment.`);
   process.exit(1);
 }
@@ -66,9 +61,7 @@ const logger = winston.createLogger({
     winston.format.timestamp(),
     winston.format.printf(({ timestamp, level, message }) => `${timestamp} [${level.toUpperCase()}] ${message}`)
   ),
-  transports: [
-    new winston.transports.Console()
-  ]
+  transports: [new winston.transports.Console()]
 });
 
 // Handle uncaught errors to prevent silent failures
@@ -219,6 +212,17 @@ function getBlobConfig() {
       return row;
     });
 
+    // Test minimal insert into test_results to verify nullable field handling
+    logger.info('Testing minimal insert into test_results...');
+    const { error: minimalInsertError } = await supabase
+      .from('test_results')
+      .insert({ url: 'https://example.com', environment: 'production' });
+    if (minimalInsertError) {
+      logger.error('Minimal insert failed:', JSON.stringify(minimalInsertError, null, 2));
+    } else {
+      logger.info('Minimal insert succeeded.');
+    }
+
     // Create test run entry in Supabase for tracking
     const runId = `run-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
     logger.info(`Attempting to insert test run with run_id: ${runId}, initiated_by: ${initiatedBy}, environment: ${environment}`);
@@ -231,7 +235,7 @@ function getBlobConfig() {
         environment
       });
     if (testRunError) {
-      logger.error('Supabase insert error:', testRunError);
+      logger.error('Supabase insert error:', JSON.stringify(testRunError, null, 2));
       process.exit(1);
     }
     logger.info(`Test Run created with ID: ${runId}`);
@@ -251,19 +255,7 @@ function getBlobConfig() {
         environment
       });
     if (progressError) {
-      let errorMsg = '[No error details]';
-      if (progressError) {
-        if (typeof progressError === 'object') {
-          try {
-            errorMsg = JSON.stringify(progressError, null, 2);
-          } catch (e) {
-            errorMsg = progressError.message || String(progressError);
-          }
-        } else {
-          errorMsg = String(progressError);
-        }
-      }
-      logger.error('Error creating crawl progress:', errorMsg);
+      logger.error('Error creating crawl progress:', JSON.stringify(progressError, null, 2));
     }
 
     // Set up directories for screenshots, videos, and debug logs
@@ -306,11 +298,8 @@ function getBlobConfig() {
                 hide(node);
               } else if (node.tagName === 'IFRAME' && node.getAttribute('name')?.includes('survey')) {
                 const dialog = node.closest('[role="dialog"]');
-                if (dialog) {
-                  hide(dialog);
-                } else {
-                  hide(node);
-                }
+                if (dialog) hide(dialog);
+                else hide(node);
               }
             }
           });
@@ -365,13 +354,11 @@ function getBlobConfig() {
     // Log debugging for failed tests
     async function logPageDom(page, url, testId) {
       try {
-        // Capture console errors for all test cases
         const consoleErrors = await page.evaluate(() => {
           return window.console.errors ? window.console.errors.join('; ') : 'None';
         });
 
         if (testId === 'TC-08') {
-          // TC-08: Log details related to the "Contact Us" button and form
           const bodyOpacity = await page.evaluate(() => document.body.style.opacity || '1');
           const contactButton = await page.$('button[name="Open Form Overlay"], a[name="Open Form Overlay"]');
           const isVisible = contactButton ? await contactButton.isVisible() : false;
@@ -386,7 +373,6 @@ function getBlobConfig() {
           logger.info(`- Current form count: ${formCount}`);
           logger.info(`- Console errors: ${consoleErrors}`);
         } else if (testId === 'TC-07') {
-          // TC-07: Log details related to the play button, modal, and video player
           const playButtonSelector = await scrollAndFind(page, [
             '.eds-rd-play',
             '.eds-rd-play-icon',
@@ -413,7 +399,6 @@ function getBlobConfig() {
           logger.info(`- Video player HTML: ${videoPlayerHtml}`);
           logger.info(`- Console errors: ${consoleErrors}`);
         } else {
-          // Default logging for other test cases
           logger.info(`${testId} Failure: No specific logging defined. Generic details:`);
           logger.info(`- Console errors: ${consoleErrors}`);
         }
@@ -426,12 +411,8 @@ function getBlobConfig() {
     async function uploadFile(filePath, destPath, retries = 3) {
       const { token, envLabel, bucket } = getBlobConfig();
       logger.info(`[${envLabel}] Uploading to bucket: ${bucket}, using token: ${token ? 'SET' : 'NOT SET'}`);
-      if (!token) {
-        throw new Error('Blob storage token is not set in the environment');
-      }
-      if (!fs.existsSync(filePath)) {
-        throw new Error(`File not found for upload: ${filePath}`);
-      }
+      if (!token) throw new Error('Blob storage token is not set in the environment');
+      if (!fs.existsSync(filePath)) throw new Error(`File not found for upload: ${filePath}`);
       let lastError;
       for (let attempt = 1; attempt <= retries; attempt++) {
         try {
@@ -499,10 +480,10 @@ function getBlobConfig() {
         })
         .eq('run_id', runId);
 
-      if (error) logger.error('Error updating crawl progress:', error.message || JSON.stringify(error, null, 2));
+      if (error) logger.error('Error updating crawl progress:', JSON.stringify(error, null, 2));
     }
 
-    // Insert test result into Supabase
+    // Insert test result into Supabase with enhanced error logging
     async function insertTestResult(url, region, testId, result, errorDetails, screenshotUrl, videoUrl) {
       const { error } = await supabase
         .from('test_results')
@@ -517,7 +498,9 @@ function getBlobConfig() {
           video_path: videoUrl,
           environment
         });
-      if (error) logger.error(`Error inserting test result for ${testId} on ${url}:`, error.message || JSON.stringify(error, null, 2));
+      if (error) {
+        logger.error(`Error inserting test result for ${testId} on ${url}:`, JSON.stringify(error, null, 2));
+      }
     }
 
     // Handle Gatekeeper interstitial if present
@@ -644,9 +627,7 @@ function getBlobConfig() {
       if (!url || !/^https?:\/\//.test(url)) {
         logger.warn(`Invalid URL: ${url}`);
         results[idx]['HTTP Status'] = 'Invalid URL';
-        for (const id of testIds) {
-          results[idx][id] = 'NA';
-        }
+        for (const id of testIds) results[idx][id] = 'NA';
         await updateProgress(idx + 1, startTime);
         return;
       }
@@ -706,9 +687,7 @@ function getBlobConfig() {
           results[idx][id] = 'Fail';
           await insertTestResult(url, region, id, 'fail', `Navigation failed: ${error.message}`, null, null);
         }
-        testIds.filter(id => !allTestIds.includes(id)).forEach(id => {
-          results[idx][id] = 'NA';
-        });
+        testIds.filter(id => !allTestIds.includes(id)).forEach(id => results[idx][id] = 'NA');
         await page.close();
         if (contextToUse !== context) await contextToUse.close();
         await updateProgress(idx + 1, startTime);
@@ -723,9 +702,7 @@ function getBlobConfig() {
       if (testIds.length !== validTestIds.length) {
         const invalid = testIds.filter(id => !allTestIds.includes(id)).join(', ');
         logger.warn(`Warning: Invalid test IDs [${invalid}] ignored.`);
-        testIds.filter(id => !allTestIds.includes(id)).forEach(id => {
-          results[idx][id] = 'NA';
-        });
+        testIds.filter(id => !allTestIds.includes(id)).forEach(id => results[idx][id] = 'NA');
       }
 
       // Execute each test case for the URL
@@ -736,11 +713,8 @@ function getBlobConfig() {
         let pass = false;
         let errorDetails = '';
         try {
-          if (['TC-07', 'TC-11'].includes(id)) {
-            page.setDefaultTimeout(15000);
-          } else {
-            page.setDefaultTimeout(DEFAULT_TIMEOUT);
-          }
+          if (['TC-07', 'TC-11'].includes(id)) page.setDefaultTimeout(15000);
+          else page.setDefaultTimeout(DEFAULT_TIMEOUT);
 
           if (id === 'TC-02') {
             await page.setViewportSize(MOBILE_VIEWPORT);
@@ -749,43 +723,36 @@ function getBlobConfig() {
 
           switch (id) {
             case 'TC-01': {
-              // Verify hero text is visible on supported hero components
               pass = await heroTextVisible(page);
               errorDetails = pass ? '' : 'Hero text not found or not visible in hero section';
               break;
             }
             case 'TC-02': {
-              // Verify hero text is visible on mobile viewport for all supported hero components
               pass = await heroTextVisible(page);
               errorDetails = pass ? '' : 'Hero text not found or not visible on mobile viewport';
               break;
             }
             case 'TC-03': {
-              // Verify header element is present
               pass = !!(await page.$('header, [class*="header"]'));
               errorDetails = pass ? '' : 'Header element not found';
               break;
             }
             case 'TC-04': {
-              // Verify navigation element is present
               pass = !!(await page.$('nav, [class*="nav"]'));
               errorDetails = pass ? '' : 'Navigation element not found';
               break;
             }
             case 'TC-05': {
-              // Verify main content element is present
               pass = !!(await page.$('main, [class*="main"]'));
               errorDetails = pass ? '' : 'Main content element not found';
               break;
             }
             case 'TC-06': {
-              // Verify footer element is present
               pass = !!(await page.$('footer, [class*="footer"]'));
               errorDetails = pass ? '' : 'Footer element not found';
               break;
             }
             case 'TC-07': {
-              // Verify video playback by finding and clicking a play button, then checking for a modal and video player
               logger.info(`TC-07: Starting for ${url}`);
               await page.waitForLoadState('networkidle');
               await page.waitForTimeout(500);
@@ -895,11 +862,9 @@ function getBlobConfig() {
                   }
                 }
               }
-
               break;
             }
             case 'TC-08': {
-              // Verify Contact Us button opens a form
               logger.info(`TC-08: Starting for ${url}`);
               await page.waitForLoadState('networkidle');
               await page.waitForTimeout(500);
@@ -917,14 +882,10 @@ function getBlobConfig() {
               }
 
               if (!(await contact.count())) {
-                contact = page.locator('button')
-                  .filter({ hasText: /contact|request|demander/i })
-                  .first();
+                contact = page.locator('button').filter({ hasText: /contact|request|demander/i }).first();
               }
               if (!(await contact.count())) {
-                contact = page.locator('a')
-                  .filter({ hasText: /contact|request|demander/i })
-                  .first();
+                contact = page.locator('a').filter({ hasText: /contact|request|demander/i }).first();
               }
 
               if (!(await contact.count())) {
@@ -934,7 +895,7 @@ function getBlobConfig() {
               }
 
               if (!(await contact.count())) {
-                logger.warn('TC-08: No contact button or link found');
+                logger.warn('TC-08 `(8): No contact button or link found');
                 pass = false;
                 errorDetails = 'No contact button or link found';
                 await logPageDom(page, url, 'TC-08');
@@ -968,7 +929,6 @@ function getBlobConfig() {
               break;
             }
             case 'TC-09': {
-              // Check for rendering errors
               const errorText = 'A rendering error occurred';
               const pageContent = await page.content();
               pass = !pageContent.includes(errorText);
@@ -976,7 +936,6 @@ function getBlobConfig() {
               break;
             }
             case 'TC-10': {
-              // Verify gatekeeper handling
               logger.info(`TC-10: Checking gatekeeper handling for ${url}`);
               logger.info(`TC-10: Gatekeeper detected: ${gatekeeperDetected}, HTTP status: ${resp ? resp.status() : 'N/A'}, Final URL: ${page.url()}`);
               pass = gatekeeperDetected && resp && resp.status() === 200;
@@ -988,7 +947,6 @@ function getBlobConfig() {
               break;
             }
             case 'TC-11': {
-              // Verify insights/newsroom link navigation
               logger.info(`TC-11: Starting for ${url}`);
               await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
               await page.waitForTimeout(3000);
@@ -1031,7 +989,6 @@ function getBlobConfig() {
               break;
             }
             case 'TC-12': {
-              // Verify redirect to doccheck-login
               logger.info(`TC-12: Final URL: ${page.url()}`);
               const finalUrl = page.url();
               pass = finalUrl.includes('/account/doccheck-login');
@@ -1040,7 +997,6 @@ function getBlobConfig() {
               break;
             }
             case 'TC-13': {
-              // Verify navigation through Produkte to Ultraschall
               logger.info(`TC-13: Starting for ${url}`);
               await page.waitForLoadState('networkidle');
               await page.waitForTimeout(500);
@@ -1113,7 +1069,6 @@ function getBlobConfig() {
               break;
             }
             case 'TC-14': {
-              // Verify HTTP status is 2xx or 3xx
               const c = resp ? resp.status() : 0;
               pass = (c >= 200 && c < 300) || HTTP_REDIRECT.includes(c);
               errorDetails = pass ? '' : `HTTP Status was ${c}, expected 2xx or 3xx`;
@@ -1188,7 +1143,7 @@ function getBlobConfig() {
           .eq('run_id', runId)
           .eq('url', url)
           .in('test_id', failedTestIds);
-        if (updateError) logger.error('Error updating test results with media URLs:', updateError.message || JSON.stringify(updateError, null, 2));
+        if (updateError) logger.error('Error updating test results with media URLs:', JSON.stringify(updateError, null, 2));
       }
 
       if (screenshotUrl) allScreenshotUrls.push(screenshotUrl);
@@ -1356,7 +1311,7 @@ function getBlobConfig() {
     logger.info('Script completed successfully. Exiting with code 0.');
     process.exit(0);
   } catch (error) {
-    logger.error('Fatal error:', error.message || JSON.stringify(error, null, 2));
+    logger.error('Fatal error:', JSON.stringify(error, null, 2));
     process.exit(1);
   }
 })();
