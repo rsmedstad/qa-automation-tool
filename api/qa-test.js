@@ -847,6 +847,7 @@ function getBlobConfig() {
               }
 
               const carousel = await page.$('.ge-product-carousel__geslider');
+              const tabItems = await page.$$('.tab-item-title');
               if (carousel) {
                 logger.info('TC-07: Carousel detected, validating slides');
                 for (let i = 0; i < MAX_CAROUSEL_SLIDES; i++) {
@@ -857,6 +858,22 @@ function getBlobConfig() {
                     pass = false;
                     errorDetails = 'Video Not Found in carousel slide';
                     logger.warn('TC-07: Video Not Found in carousel slide');
+                    await logPageDom(page, url, 'TC-07');
+                    break;
+                  }
+                }
+              } else if (tabItems.length > 1) {
+                logger.info('TC-07: Tab-based carousel detected, validating tabs');
+                for (let i = 0; i < Math.min(tabItems.length, MAX_CAROUSEL_SLIDES); i++) {
+                  const tab = tabItems[i];
+                  await tab.scrollIntoViewIfNeeded();
+                  await tab.click();
+                  await page.waitForTimeout(1000);
+                  const alertText = await page.$eval('.alert-content .alert-title', el => el.textContent).catch(() => '');
+                  if (alertText && alertText.includes('Video Not Found')) {
+                    pass = false;
+                    errorDetails = 'Video Not Found in carousel tab';
+                    logger.warn('TC-07: Video Not Found in carousel tab');
                     await logPageDom(page, url, 'TC-07');
                     break;
                   }
