@@ -21,7 +21,7 @@ on:
         type: boolean
         default: false
       run_env:
-        description: 'Environment to use (prod or test)'
+        description: 'Environment to use (prod, test, or preview)'
         required: false
         default: 'prod'
 
@@ -90,12 +90,19 @@ jobs:
 
       - name: Debug environment variables
         run: |
+          echo "Run Environment: ${{ github.event.inputs.run_env }}"
           echo "SUPABASE_URL: $SUPABASE_URL"
           echo "SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:0:8}..."
           echo "BLOB_READ_WRITE_TOKEN: ${BLOB_READ_WRITE_TOKEN:0:8}..."
           echo "STORAGE_BUCKET: $STORAGE_BUCKET"
           echo "VERCEL_URL: $VERCEL_URL"
           echo "VERCEL_ENV: $VERCEL_ENV"
+          if [ -z "$BLOB_READ_WRITE_TOKEN" ]; then
+            echo "ERROR: BLOB_READ_WRITE_TOKEN is empty or not set"
+          fi
+          if [ -z "$STORAGE_BUCKET" ]; then
+            echo "ERROR: STORAGE_BUCKET is empty or not set"
+          fi
 
       - name: Run QA tests
         continue-on-error: true
@@ -184,7 +191,7 @@ jobs:
             echo "Failed to send summary to Vercel. Status: $RESPONSE. Continuing workflow."
             exit 0
           fi
-      
+
       - name: Upload summary.json artifact
         if: always()
         uses: actions/upload-artifact@v4

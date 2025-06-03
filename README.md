@@ -93,6 +93,22 @@ Supported hero components for **TC-01**:
 - `.hero-content-intro`
 - `.product-heroV2-container`
 
+### Method Summary
+
+Both **TC-01** and **TC-02** use the `heroTextVisible` helper from `utils/hero.js`.
+The script iterates over the selectors above and returns `true` once any hero
+text element is visible. TC‑01 runs at a **1920×1080** viewport, while TC‑02
+sets a **375×667** mobile viewport before checking visibility.
+
+### Screaming Frog Emulation
+
+Screaming Frog cannot verify viewport‑specific behavior such as overlays, but it
+can confirm whether a hero element exists. Use **Custom Extraction** and create
+an extraction with a regular expression covering the selectors listed above,
+e.g. `div\[id*="ge-homepage-hero"\]` or `section\.ge-homepage-hero-v2-component`.
+After crawling, review the “Extraction” tab to see URLs containing these hero
+elements.
+
 For details and any custom extraction, use the dashboard’s **Test Definitions** section.
 
 ---
