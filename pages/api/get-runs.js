@@ -1,3 +1,4 @@
+// Retrieves recent GitHub Actions workflow runs and their artifacts
 import NodeCache from 'node-cache';
 
 const cache = new NodeCache({ stdTTL: 300 }); // 5-minute TTL
@@ -7,11 +8,16 @@ export default async function handler(req, res) {
     return res.status(405).json({ message: 'Method not allowed' });
   }
 
-  const cacheKey = 'workflow_runs';
+  const envFilter = req.query.env;
+  const cacheKey = envFilter ? `workflow_runs_${envFilter}` : 'workflow_runs';
   const cachedData = cache.get(cacheKey);
   if (cachedData) {
     console.log('Returning cached data');
-    return res.status(200).json(cachedData);
+    let runs = cachedData;
+    if (envFilter) {
+      runs = cachedData.filter(run => run.environment === envFilter);
+    }
+    return res.status(200).json(runs);
   }
 
   try {
@@ -164,7 +170,6 @@ export default async function handler(req, res) {
       consumed: initialRateLimit.data.rate.remaining - finalRateLimit.data.rate.remaining
     });
 
-    const envFilter = req.query.env;
     let filteredRuns = validRuns;
     if (envFilter) {
       filteredRuns = validRuns.filter(run => {

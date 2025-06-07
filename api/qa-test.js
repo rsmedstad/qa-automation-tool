@@ -15,10 +15,31 @@
   • Optimized for performance while preserving visual integrity
   • Includes detailed commentary explaining each function and test case logic
   • Updated TC-07 to scroll play button into view and use broader hover target
+  • Extended TC-07 to validate video carousels when present
   • Updated TC-08 with refined Contact Us button selector targeting hero section
   • Updated TC-13 with simplified submenu wait condition for Ultraschall link
   • Added survey handling mechanisms to block and dismiss survey pop-ups
+  • Enhanced error logging with full error object output
+  • Added minimal insert test to handle nullable fields gracefully
 ──────────────────────────────────────────────────────────────────────────────*/
+
+// --- Environment variable check for Supabase ---
+const isVercel = !!process.env.VERCEL;
+const isGithubActions = !!process.env.GITHUB_ACTIONS;
+
+if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+  const envSource = isVercel
+    ? `Vercel (${process.env.VERCEL_ENV || 'unknown env'})`
+    : isGithubActions
+      ? 'GitHub Actions'
+      : 'local shell';
+  console.error(`\n[ERROR] SUPABASE_URL and/or SUPABASE_SERVICE_ROLE_KEY are missing!`);
+  console.error(`[INFO] Detected environment: ${envSource}`);
+  console.error(`[INFO] SUPABASE_URL: ${process.env.SUPABASE_URL ? 'SET' : 'NOT SET'}`);
+  console.error(`[INFO] SUPABASE_SERVICE_ROLE_KEY: ${process.env.SUPABASE_SERVICE_ROLE_KEY ? 'SET' : 'NOT SET'}`);
+  console.error(`\nTo fix: Set these environment variables in your ${envSource} environment.`);
+  process.exit(1);
+}
 
 import winston from 'winston';
 import fs from 'fs';
@@ -31,6 +52,7 @@ import fetch from 'node-fetch';
 import pTimeout from 'p-timeout';
 import { v4 as uuidv4 } from 'uuid';
 import 'dotenv/config';
+import { heroTextVisible } from '../utils/hero.js';
 
 // Logger setup (Winston)
 const logger = winston.createLogger({
@@ -39,9 +61,7 @@ const logger = winston.createLogger({
     winston.format.timestamp(),
     winston.format.printf(({ timestamp, level, message }) => `${timestamp} [${level.toUpperCase()}] ${message}`)
   ),
-  transports: [
-    new winston.transports.Console()
-  ]
+  transports: [new winston.transports.Console()]
 });
 
 // Handle uncaught errors to prevent silent failures
@@ -83,6 +103,7 @@ const MOBILE_VIEWPORT = { width: 375, height: 667 };
 const HTTP_REDIRECT = [301, 302];
 const CONCURRENCY = 3;
 const BATCH_DELAY = 2000;
+const MAX_CAROUSEL_SLIDES = parseInt(process.env.MAX_CAROUSEL_SLIDES || '5', 10);
 
 // Helper to get environment label
 const environment = process.env.VERCEL_ENV || 'production';
@@ -191,8 +212,20 @@ function getBlobConfig() {
       return row;
     });
 
+    // Test minimal insert into test_results to verify nullable field handling
+    logger.info('Testing minimal insert into test_results...');
+    const { error: minimalInsertError } = await supabase
+      .from('test_results')
+      .insert({ url: 'https://example.com', environment: 'production' });
+    if (minimalInsertError) {
+      logger.error('Minimal insert failed:', JSON.stringify(minimalInsertError, null, 2));
+    } else {
+      logger.info('Minimal insert succeeded.');
+    }
+
     // Create test run entry in Supabase for tracking
-    const runId = `run-${Date.now()}`;
+    const runId = `run-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+    logger.info(`Attempting to insert test run with run_id: ${runId}, initiated_by: ${initiatedBy}, environment: ${environment}`);
     const { error: testRunError } = await supabase
       .from('test_runs')
       .insert({
@@ -202,19 +235,7 @@ function getBlobConfig() {
         environment
       });
     if (testRunError) {
-      let errorMsg = '[No error details]';
-      if (testRunError) {
-        if (typeof testRunError === 'object') {
-          try {
-            errorMsg = JSON.stringify(testRunError, null, 2);
-          } catch (e) {
-            errorMsg = testRunError.message || String(testRunError);
-          }
-        } else {
-          errorMsg = String(testRunError);
-        }
-      }
-      logger.error('Error creating test run:', errorMsg);
+      logger.error('Supabase insert error:', JSON.stringify(testRunError, null, 2));
       process.exit(1);
     }
     logger.info(`Test Run created with ID: ${runId}`);
@@ -234,19 +255,7 @@ function getBlobConfig() {
         environment
       });
     if (progressError) {
-      let errorMsg = '[No error details]';
-      if (progressError) {
-        if (typeof progressError === 'object') {
-          try {
-            errorMsg = JSON.stringify(progressError, null, 2);
-          } catch (e) {
-            errorMsg = progressError.message || String(progressError);
-          }
-        } else {
-          errorMsg = String(progressError);
-        }
-      }
-      logger.error('Error creating crawl progress:', errorMsg);
+      logger.error('Error creating crawl progress:', JSON.stringify(progressError, null, 2));
     }
 
     // Set up directories for screenshots, videos, and debug logs
@@ -289,11 +298,8 @@ function getBlobConfig() {
                 hide(node);
               } else if (node.tagName === 'IFRAME' && node.getAttribute('name')?.includes('survey')) {
                 const dialog = node.closest('[role="dialog"]');
-                if (dialog) {
-                  hide(dialog);
-                } else {
-                  hide(node);
-                }
+                if (dialog) hide(dialog);
+                else hide(node);
               }
             }
           });
@@ -325,63 +331,79 @@ function getBlobConfig() {
       return true;
     }
 
+    // Advance the video carousel to the next slide if a next-arrow is found
+    async function clickNextCarouselButton(page) {
+      const nextSelectors = [
+        '.ge-product-carousel__arrow--next button',
+        '.ge-product-carousel__arrow--next',
+        '[data-testid="carousel-arrow-next"]',
+        '[aria-label="Next Slide"]',
+        '[aria-label="Next"]'
+      ];
+      for (const sel of nextSelectors) {
+        const btn = await page.$(sel);
+        if (btn) {
+          await btn.click();
+          await page.waitForTimeout(1000);
+          return true;
+        }
+      }
+      return false;
+    }
+
     // Log debugging for failed tests
     async function logPageDom(page, url, testId) {
-    try {
-      // Capture console errors for all test cases
-      const consoleErrors = await page.evaluate(() => {
-        return window.console.errors ? window.console.errors.join('; ') : 'None';
-      });
+      try {
+        const consoleErrors = await page.evaluate(() => {
+          return window.console.errors ? window.console.errors.join('; ') : 'None';
+        });
 
-      if (testId === 'TC-08') {
-        // TC-08: Log details related to the "Contact Us" button and form
-        const bodyOpacity = await page.evaluate(() => document.body.style.opacity || '1');
-        const contactButton = await page.$('button[name="Open Form Overlay"], a[name="Open Form Overlay"]');
-        const isVisible = contactButton ? await contactButton.isVisible() : false;
-        const buttonHtml = contactButton ? await page.$eval('button[name="Open Form Overlay"], a[name="Open Form Overlay"]', el => el.outerHTML) : 'Not found';
-        const formCount = await page.$$('form').then(forms => forms.length);
+        if (testId === 'TC-08') {
+          const bodyOpacity = await page.evaluate(() => document.body.style.opacity || '1');
+          const contactButton = await page.$('button[name="Open Form Overlay"], a[name="Open Form Overlay"]');
+          const isVisible = contactButton ? await contactButton.isVisible() : false;
+          const buttonHtml = contactButton ? await page.$eval('button[name="Open Form Overlay"], a[name="Open Form Overlay"]', el => el.outerHTML) : 'Not found';
+          const formCount = await page.$$('form').then(forms => forms.length);
 
-        logger.info(`   TC-08 Failure Details:`);
-        logger.info(`   - Body opacity: ${bodyOpacity}`);
-        logger.info(`   - Contact button found: ${!!contactButton}`);
-        logger.info(`   - Contact button visible: ${isVisible}`);
-        logger.info(`   - Contact button HTML: ${buttonHtml}`);
-        logger.info(`   - Current form count: ${formCount}`);
-        logger.info(`   - Console errors: ${consoleErrors}`);
-      } else if (testId === 'TC-07') {
-        // TC-07: Log details related to the play button, modal, and video player
-        const playButtonSelector = await scrollAndFind(page, [
-          '.eds-rd-play',
-          '.eds-rd-play-icon',
-          '.ge-contentTeaser__content-section__contentTeaserHero-play-icon',
-          '.ge-contentTeaser__content-section__contentTeaserHero__img-container',
-          '[class*="play-button"]',
-          '[data-testid*="play"]'
-        ], 5);
-        const playButton = playButtonSelector ? await page.$(playButtonSelector) : null;
-        const isVisible = playButton ? await playButton.isVisible() : false;
-        const playButtonHtml = playButton ? await page.$eval(playButtonSelector, el => el.outerHTML) : 'Not found';
-        const modal = await page.$('div.ge-modal-window, div.ge-contentTeaser__content-section__video-modal, div.ge-contentTeaser__content-section__vidyard-video-modal');
-        const modalHtml = modal ? await modal.evaluate(el => el.outerHTML) : 'Not found';
-        const videoPlayer = await page.$('div.vidyard-player-container, iframe[src*="play.vidyard.com"], video');
-        const videoPlayerHtml = videoPlayer ? await videoPlayer.evaluate(el => el.outerHTML) : 'Not found';
+          logger.info(`TC-08 Failure Details:`);
+          logger.info(`- Body opacity: ${bodyOpacity}`);
+          logger.info(`- Contact button found: ${!!contactButton}`);
+          logger.info(`- Contact button visible: ${isVisible}`);
+          logger.info(`- Contact button HTML: ${buttonHtml}`);
+          logger.info(`- Current form count: ${formCount}`);
+          logger.info(`- Console errors: ${consoleErrors}`);
+        } else if (testId === 'TC-07') {
+          const playButtonSelector = await scrollAndFind(page, [
+            '.eds-rd-play',
+            '.eds-rd-play-icon',
+            '.ge-contentTeaser__content-section__contentTeaserHero-play-icon',
+            '.ge-contentTeaser__content-section__contentTeaserHero__img-container',
+            '[class*="play-button"]',
+            '[data-testid*="play"]'
+          ], 5);
+          const playButton = playButtonSelector ? await page.$(playButtonSelector) : null;
+          const isVisible = playButton ? await playButton.isVisible() : false;
+          const playButtonHtml = playButton ? await page.$eval(playButtonSelector, el => el.outerHTML) : 'Not found';
+          const modal = await page.$('div.ge-modal-window, div.ge-contentTeaser__content-section__video-modal, div.ge-contentTeaser__content-section__vidyard-video-modal');
+          const modalHtml = modal ? await modal.evaluate(el => el.outerHTML) : 'Not found';
+          const videoPlayer = await page.$('div.vidyard-player-container, iframe[src*="play.vidyard.com"], video');
+          const videoPlayerHtml = videoPlayer ? await videoPlayer.evaluate(el => el.outerHTML) : 'Not found';
 
-        logger.info(`   TC-07 Failure Details:`);
-        logger.info(`   - Play button found: ${!!playButton}`);
-        logger.info(`   - Play button visible: ${isVisible}`);
-        logger.info(`   - Play button HTML: ${playButtonHtml}`);
-        logger.info(`   - Modal found: ${!!modal}`);
-        logger.info(`   - Modal HTML: ${modalHtml}`);
-        logger.info(`   - Video player found: ${!!videoPlayer}`);
-        logger.info(`   - Video player HTML: ${videoPlayerHtml}`);
-        logger.info(`   - Console errors: ${consoleErrors}`);
-      } else {
-        // Default logging for other test cases
-        logger.info(`   ${testId} Failure: No specific logging defined. Generic details:`);
-        logger.info(`   - Console errors: ${consoleErrors}`);
-      }
+          logger.info(`TC-07 Failure Details:`);
+          logger.info(`- Play button found: ${!!playButton}`);
+          logger.info(`- Play button visible: ${isVisible}`);
+          logger.info(`- Play button HTML: ${playButtonHtml}`);
+          logger.info(`- Modal found: ${!!modal}`);
+          logger.info(`- Modal HTML: ${modalHtml}`);
+          logger.info(`- Video player found: ${!!videoPlayer}`);
+          logger.info(`- Video player HTML: ${videoPlayerHtml}`);
+          logger.info(`- Console errors: ${consoleErrors}`);
+        } else {
+          logger.info(`${testId} Failure: No specific logging defined. Generic details:`);
+          logger.info(`- Console errors: ${consoleErrors}`);
+        }
       } catch (err) {
-        logger.error(`   Failed to log debug details for ${testId}: ${err.message}`);
+        logger.error(`Failed to log debug details for ${testId}: ${err.message}`);
       }
     }
 
@@ -389,17 +411,12 @@ function getBlobConfig() {
     async function uploadFile(filePath, destPath, retries = 3) {
       const { token, envLabel, bucket } = getBlobConfig();
       logger.info(`[${envLabel}] Uploading to bucket: ${bucket}, using token: ${token ? 'SET' : 'NOT SET'}`);
-      if (!token) {
-        throw new Error('Blob storage token is not set in the environment');
-      }
-      if (!fs.existsSync(filePath)) {
-        throw new Error(`File not found for upload: ${filePath}`);
-      }
+      if (!token) throw new Error('Blob storage token is not set in the environment');
+      if (!fs.existsSync(filePath)) throw new Error(`File not found for upload: ${filePath}`);
       let lastError;
       for (let attempt = 1; attempt <= retries; attempt++) {
         try {
           const fileBuffer = fs.readFileSync(filePath);
-          // If bucket is needed in destPath, prepend it
           const fullDestPath = bucket ? `${bucket}/${destPath}` : destPath;
           const blob = await put(fullDestPath, fileBuffer, {
             access: 'public',
@@ -463,10 +480,10 @@ function getBlobConfig() {
         })
         .eq('run_id', runId);
 
-      if (error) logger.error('Error updating crawl progress:', error.message || error);
+      if (error) logger.error('Error updating crawl progress:', JSON.stringify(error, null, 2));
     }
 
-    // Insert test result into Supabase
+    // Insert test result into Supabase with enhanced error logging
     async function insertTestResult(url, region, testId, result, errorDetails, screenshotUrl, videoUrl) {
       const { error } = await supabase
         .from('test_results')
@@ -481,7 +498,9 @@ function getBlobConfig() {
           video_path: videoUrl,
           environment
         });
-      if (error) logger.error(`Error inserting test result for ${testId} on ${url}:`, error.message || error);
+      if (error) {
+        logger.error(`Error inserting test result for ${testId} on ${url}:`, JSON.stringify(error, null, 2));
+      }
     }
 
     // Handle Gatekeeper interstitial if present
@@ -494,21 +513,21 @@ function getBlobConfig() {
           const gatekeeper = await page.waitForSelector(selector, { timeout: DEFAULT_TIMEOUT });
           if (gatekeeper) {
             gatekeeperDetected = true;
-            logger.info(`   Gatekeeper detected with selector: ${selector}`);
+            logger.info(`Gatekeeper detected with selector: ${selector}`);
             const yesButton = await page.waitForSelector(yesButtonSelector, { timeout: 3000 });
             if (yesButton) {
               await yesButton.click();
-              logger.info('   Clicked "Yes" on gatekeeper');
+              logger.info('Clicked "Yes" on gatekeeper');
               await page.waitForLoadState('domcontentloaded', { timeout: NAVIGATION_TIMEOUT });
-              logger.info('   Navigated after gatekeeper');
+              logger.info('Navigated after gatekeeper');
             }
             break;
           }
         }
       } catch (error) {
-        logger.info('   No gatekeeper found or error handling:', error.message);
+        logger.info('No gatekeeper found or error handling:', error.message);
       }
-      logger.info(`   Gatekeeper detection result: ${gatekeeperDetected}`);
+      logger.info(`Gatekeeper detection result: ${gatekeeperDetected}`);
       return gatekeeperDetected;
     }
 
@@ -524,25 +543,25 @@ function getBlobConfig() {
       const buttonKeywords = ['accept', 'agree', 'ok', 'allow', 'confirm', 'dismiss', 'got it', 'understand', 'close', 'confirmer'];
 
       try {
-        logger.info('   Checking for overlays (cookie banners or interstitials)...');
+        logger.info('Checking for overlays (cookie banners or interstitials)...');
         const cookieBanner = await page.$('#_evidon_banner');
         if (cookieBanner && await cookieBanner.isVisible()) {
-          logger.info('   Specific clearfix');
+          logger.info('Specific clearfix');
           const declineButton = await page.$('#_evidon-decline-button');
           if (declineButton) {
             await declineButton.click();
-            logger.info('   Clicked "Allow necessary only" on cookie banner');
+            logger.info('Clicked "Allow necessary only" on cookie banner');
             try {
               await page.waitForFunction(() => !document.querySelector('#_evidon_banner'), { timeout: 5000 });
             } catch (e) {
-              logger.info('   Banner did not disappear, hiding via JavaScript');
+              logger.info('Banner did not disappear, hiding via JavaScript');
               await page.evaluate(() => {
                 const banner = document.querySelector('#_evidon_banner');
                 if (banner) banner.style.display = 'none';
               });
             }
           } else {
-            logger.info('   "Allow necessary only" button not found, hiding banner via JavaScript');
+            logger.info('"Allow necessary only" button not found, hiding banner via JavaScript');
             await page.evaluate(() => {
               const banner = document.querySelector('#_evidon_banner');
               if (banner) banner.style.display = 'none';
@@ -551,26 +570,26 @@ function getBlobConfig() {
         } else {
           const overlay = await page.waitForSelector(overlaySelectors.join(', '), { timeout: 5000 });
           if (overlay) {
-            logger.info('   General overlay detected');
+            logger.info('General overlay detected');
             const buttons = await overlay.$$('button, [role="button"], a');
             for (const button of buttons) {
               const text = (await button.textContent()).toLowerCase();
               if (buttonKeywords.some(keyword => text.includes(keyword))) {
-                logger.info(`   Clicking overlay button: ${text}`);
+                logger.info(`Clicking overlay button: ${text}`);
                 await button.click();
                 await page.waitForTimeout(1000);
-                logger.info('   Overlay dismissed');
+                logger.info('Overlay dismissed');
                 return true;
               }
             }
-            logger.info('   No dismiss button found, relying on init script to hide overlay');
+            logger.info('No dismiss button found, relying on init script to hide overlay');
             return true;
           } else {
-            logger.info('   No overlay detected within timeout');
+            logger.info('No overlay detected within timeout');
           }
         }
       } catch (error) {
-        logger.info('   No overlay found or error handling:', error.message);
+        logger.info('No overlay found or error handling:', error.message);
       }
       return false;
     }
@@ -584,11 +603,11 @@ function getBlobConfig() {
         const closeButton = await page.waitForSelector(closeButtonSelector, { timeout: 2000 });
         if (closeButton) {
           await closeButton.click();
-          logger.info('   Survey dismissed by clicking close button');
+          logger.info('Survey dismissed by clicking close button');
           return true;
         }
       } catch (e) {
-        logger.info('   No survey pop-up found or unable to dismiss');
+        logger.info('No survey pop-up found or unable to dismiss');
       }
       return false;
     }
@@ -608,9 +627,7 @@ function getBlobConfig() {
       if (!url || !/^https?:\/\//.test(url)) {
         logger.warn(`Invalid URL: ${url}`);
         results[idx]['HTTP Status'] = 'Invalid URL';
-        for (const id of testIds) {
-          results[idx][id] = 'NA';
-        }
+        for (const id of testIds) results[idx][id] = 'NA';
         await updateProgress(idx + 1, startTime);
         return;
       }
@@ -655,14 +672,14 @@ function getBlobConfig() {
       page = await contextToUse.newPage();
 
       try {
-        logger.info('   Navigating to URL...');
+        logger.info('Navigating to URL...');
         resp = await pTimeout(page.goto(url, { timeout: NAVIGATION_TIMEOUT, waitUntil: 'domcontentloaded' }), NAVIGATION_TIMEOUT, 'Navigation timeout');
-        logger.info('   Navigation completed');
+        logger.info('Navigation completed');
         gatekeeperDetected = await handleGatekeeper(page, url);
         await handleOverlays(page);
         await handleSurvey(page);
       } catch (error) {
-        logger.error(`   Navigation error for ${url}: ${error.message}`);
+        logger.error(`Navigation error for ${url}: ${error.message}`);
         pageError = `Navigation failed: ${error.message}`;
         results[idx]['HTTP Status'] = 'Navigation Error';
         const validTestIds = testIds.filter(id => allTestIds.includes(id));
@@ -670,13 +687,11 @@ function getBlobConfig() {
           results[idx][id] = 'Fail';
           await insertTestResult(url, region, id, 'fail', `Navigation failed: ${error.message}`, null, null);
         }
-        testIds.filter(id => !allTestIds.includes(id)).forEach(id => {
-          results[idx][id] = 'NA';
-        });
+        testIds.filter(id => !allTestIds.includes(id)).forEach(id => results[idx][id] = 'NA');
         await page.close();
         if (contextToUse !== context) await contextToUse.close();
         await updateProgress(idx + 1, startTime);
-        logger.error(`     ❌ Failed navigation ${(Date.now() - t0) / 1000}s`);
+        logger.error(`❌ Failed navigation ${(Date.now() - t0) / 1000}s`);
         return;
       }
 
@@ -686,10 +701,8 @@ function getBlobConfig() {
       const validTestIds = testIds.filter(id => allTestIds.includes(id));
       if (testIds.length !== validTestIds.length) {
         const invalid = testIds.filter(id => !allTestIds.includes(id)).join(', ');
-        logger.warn(`   Warning: Invalid test IDs [${invalid}] ignored.`);
-        testIds.filter(id => !allTestIds.includes(id)).forEach(id => {
-          results[idx][id] = 'NA';
-        });
+        logger.warn(`Warning: Invalid test IDs [${invalid}] ignored.`);
+        testIds.filter(id => !allTestIds.includes(id)).forEach(id => results[idx][id] = 'NA');
       }
 
       // Execute each test case for the URL
@@ -700,11 +713,8 @@ function getBlobConfig() {
         let pass = false;
         let errorDetails = '';
         try {
-          if (['TC-07', 'TC-11'].includes(id)) {
-            page.setDefaultTimeout(15000);
-          } else {
-            page.setDefaultTimeout(DEFAULT_TIMEOUT);
-          }
+          if (['TC-07', 'TC-11'].includes(id)) page.setDefaultTimeout(15000);
+          else page.setDefaultTimeout(DEFAULT_TIMEOUT);
 
           if (id === 'TC-02') {
             await page.setViewportSize(MOBILE_VIEWPORT);
@@ -713,56 +723,47 @@ function getBlobConfig() {
 
           switch (id) {
             case 'TC-01': {
-              // Verify hero text is visible on the homepage
-              const heroText = await page.$('section.ge-homepage-hero-v2-component .ge-homepage-hero-v2__text-content');
-              pass = heroText && await heroText.isVisible();
+              pass = await heroTextVisible(page);
               errorDetails = pass ? '' : 'Hero text not found or not visible in hero section';
               break;
             }
             case 'TC-02': {
-              // Verify hero text is visible on mobile viewport
-              const heroText = await page.$('div[id*="ge-homepage-hero"] .ge-homepage-hero-v2__text-content, section.ge-homepage-hero-v2-component .ge-homepage-hero-v2__text-content');
-              pass = heroText && await heroText.isVisible();
+              pass = await heroTextVisible(page);
               errorDetails = pass ? '' : 'Hero text not found or not visible on mobile viewport';
               break;
             }
             case 'TC-03': {
-              // Verify header element is present
               pass = !!(await page.$('header, [class*="header"]'));
               errorDetails = pass ? '' : 'Header element not found';
               break;
             }
             case 'TC-04': {
-              // Verify navigation element is present
               pass = !!(await page.$('nav, [class*="nav"]'));
               errorDetails = pass ? '' : 'Navigation element not found';
               break;
             }
             case 'TC-05': {
-              // Verify main content element is present
               pass = !!(await page.$('main, [class*="main"]'));
               errorDetails = pass ? '' : 'Main content element not found';
               break;
             }
             case 'TC-06': {
-              // Verify footer element is present
               pass = !!(await page.$('footer, [class*="footer"]'));
               errorDetails = pass ? '' : 'Footer element not found';
               break;
             }
             case 'TC-07': {
-              // Verify video playback by finding and clicking a play button, then checking for a modal and video player
-              logger.info(`   TC-07: Starting for ${url}`);
+              logger.info(`TC-07: Starting for ${url}`);
               await page.waitForLoadState('networkidle');
               await page.waitForTimeout(500);
 
               if (await page.$('video, video[data-testid="hls-video"], iframe[src*="vidyard"], [data-testid*="video"]')) {
                 pass = true;
-                logger.info(`   TC-07: Video found directly`);
+                logger.info(`TC-07: Video found directly`);
                 break;
               }
 
-              logger.info(`   TC-07: No video found, searching for play button`);
+              logger.info(`TC-07: No video found, searching for play button`);
               const playButtonSelector = await scrollAndFind(page, [
                 '.eds-rd-play',
                 '.eds-rd-play-icon',
@@ -775,13 +776,13 @@ function getBlobConfig() {
               if (!playButtonSelector) {
                 pass = false;
                 errorDetails = 'Play button/element not found';
-                logger.warn(`   TC-07: Play button not found`);
+                logger.warn(`TC-07: Play button not found`);
                 await logPageDom(page, url, 'TC-07');
                 break;
               }
 
               const playButton = page.locator(playButtonSelector);
-              logger.info(`   TC-07: Found play button: ${playButtonSelector}`);
+              logger.info(`TC-07: Found play button: ${playButtonSelector}`);
 
               const imgContainer = page.locator('.ge-contentTeaser__content-section__contentTeaserHero__img-container');
               if (await imgContainer.count()) {
@@ -813,13 +814,13 @@ function getBlobConfig() {
               if (!isVisible) {
                 pass = false;
                 errorDetails = 'Play button not visible after scrolling and hovering';
-                logger.warn(`   TC-07: Play button not visible`);
+                logger.warn(`TC-07: Play button not visible`);
                 await logPageDom(page, url, 'TC-07');
                 break;
               }
 
               await playButton.click();
-              logger.info(`   TC-07: Clicked play button, waiting for modal`);
+              logger.info(`TC-07: Clicked play button, waiting for modal`);
 
               const modal = await page.waitForSelector(
                 'div.ge-modal-window, div.ge-contentTeaser__content-section__video-modal, div.ge-contentTeaser__content-section__vidyard-video-modal',
@@ -828,30 +829,66 @@ function getBlobConfig() {
               if (!modal) {
                 pass = false;
                 errorDetails = 'Video modal did not open';
-                logger.warn(`   TC-07: Modal did not open`);
+                logger.warn(`TC-07: Modal did not open`);
                 await logPageDom(page, url, 'TC-07');
                 break;
               }
 
-              logger.info(`   TC-07: Modal opened, waiting for Vidyard player`);
+              logger.info(`TC-07: Modal opened, waiting for Vidyard player`);
               pass = await page.waitForSelector(
                 'div.vidyard-player-container, iframe[src*="play.vidyard.com"], video',
                 { timeout: 10000 }
               ).then(() => true).catch(() => false);
               errorDetails = pass ? '' : 'Vidyard player or iframe not found after modal opened';
-              logger.info(`   TC-07: Vidyard player check: ${pass ? 'Pass' : 'Fail'}`);
-              if (!pass) await logPageDom(page, url, 'TC-07');
+              logger.info(`TC-07: Vidyard player check: ${pass ? 'Pass' : 'Fail'}`);
+              if (!pass) {
+                await logPageDom(page, url, 'TC-07');
+                break;
+              }
+
+              const carousel = await page.$('.ge-product-carousel__geslider');
+              const tabItems = await page.$$('.tab-item-title');
+              if (carousel) {
+                logger.info('TC-07: Carousel detected, validating slides');
+                for (let i = 0; i < MAX_CAROUSEL_SLIDES; i++) {
+                  const clicked = await clickNextCarouselButton(page);
+                  if (!clicked) break;
+                  const alertText = await page.$eval('.alert-content .alert-title', el => el.textContent).catch(() => '');
+                  if (alertText && alertText.includes('Video Not Found')) {
+                    pass = false;
+                    errorDetails = 'Video Not Found in carousel slide';
+                    logger.warn('TC-07: Video Not Found in carousel slide');
+                    await logPageDom(page, url, 'TC-07');
+                    break;
+                  }
+                }
+              } else if (tabItems.length > 1) {
+                logger.info('TC-07: Tab-based carousel detected, validating tabs');
+                for (let i = 0; i < Math.min(tabItems.length, MAX_CAROUSEL_SLIDES); i++) {
+                  const tab = tabItems[i];
+                  await tab.scrollIntoViewIfNeeded();
+                  await tab.click();
+                  await page.waitForTimeout(1000);
+                  const alertText = await page.$eval('.alert-content .alert-title', el => el.textContent).catch(() => '');
+                  if (alertText && alertText.includes('Video Not Found')) {
+                    pass = false;
+                    errorDetails = 'Video Not Found in carousel tab';
+                    logger.warn('TC-07: Video Not Found in carousel tab');
+                    await logPageDom(page, url, 'TC-07');
+                    break;
+                  }
+                }
+              }
               break;
             }
             case 'TC-08': {
-              // Verify Contact Us button opens a form
-              logger.info(`   TC-08: Starting for ${url}`);
+              logger.info(`TC-08: Starting for ${url}`);
               await page.waitForLoadState('networkidle');
               await page.waitForTimeout(500);
 
               const initialForms = await page.$$('form');
               const initialFormCount = initialForms.length;
-              logger.info(`   TC-08: Initial form count: ${initialFormCount}`);
+              logger.info(`TC-08: Initial form count: ${initialFormCount}`);
 
               let contact = page.locator('button[name="Open Form Overlay"], a[name="Open Form Overlay"]').first();
 
@@ -862,14 +899,10 @@ function getBlobConfig() {
               }
 
               if (!(await contact.count())) {
-                contact = page.locator('button')
-                  .filter({ hasText: /contact|request|demander/i })
-                  .first();
+                contact = page.locator('button').filter({ hasText: /contact|request|demander/i }).first();
               }
               if (!(await contact.count())) {
-                contact = page.locator('a')
-                  .filter({ hasText: /contact|request|demander/i })
-                  .first();
+                contact = page.locator('a').filter({ hasText: /contact|request|demander/i }).first();
               }
 
               if (!(await contact.count())) {
@@ -879,19 +912,19 @@ function getBlobConfig() {
               }
 
               if (!(await contact.count())) {
-                logger.warn('   TC-08: No contact button or link found');
+                logger.warn('TC-08 `(8): No contact button or link found');
                 pass = false;
                 errorDetails = 'No contact button or link found';
                 await logPageDom(page, url, 'TC-08');
                 break;
               }
 
-              logger.info(`   TC-08: Found contact element: ${await contact.textContent()}`);
+              logger.info(`TC-08: Found contact element: ${await contact.textContent()}`);
 
               try {
                 await contact.waitFor({ state: 'visible', timeout: 20000 });
               } catch (e) {
-                logger.warn('   TC-08: Contact element not visible within 20 seconds');
+                logger.warn('TC-08: Contact element not visible within 20 seconds');
                 pass = false;
                 errorDetails = 'Contact element not visible';
                 await logPageDom(page, url, 'TC-08');
@@ -901,19 +934,18 @@ function getBlobConfig() {
               await contact.scrollIntoViewIfNeeded();
               await contact.click({ force: true });
 
-              logger.info(`   TC-08: Waiting for form count to increase`);
+              logger.info(`TC-08: Waiting for form count to increase`);
               pass = await page.waitForFunction(
                 prevCount => document.querySelectorAll('form').length > prevCount,
                 initialFormCount,
                 { timeout: 12000 }
               ).then(() => true).catch(() => false);
               errorDetails = pass ? '' : `Form count did not increase (initial: ${initialFormCount}, current: ${await page.evaluate(() => document.querySelectorAll('form').length)})`;
-              logger.info(`   TC-08: Form count check: ${pass ? 'Pass' : 'Fail'}`);
+              logger.info(`TC-08: Form count check: ${pass ? 'Pass' : 'Fail'}`);
               if (!pass) await logPageDom(page, url, 'TC-08');
               break;
             }
             case 'TC-09': {
-              // Check for rendering errors
               const errorText = 'A rendering error occurred';
               const pageContent = await page.content();
               pass = !pageContent.includes(errorText);
@@ -921,20 +953,18 @@ function getBlobConfig() {
               break;
             }
             case 'TC-10': {
-              // Verify gatekeeper handling
-              logger.info(`   TC-10: Checking gatekeeper handling for ${url}`);
-              logger.info(`   TC-10: Gatekeeper detected: ${gatekeeperDetected}, HTTP status: ${resp ? resp.status() : 'N/A'}, Final URL: ${page.url()}`);
+              logger.info(`TC-10: Checking gatekeeper handling for ${url}`);
+              logger.info(`TC-10: Gatekeeper detected: ${gatekeeperDetected}, HTTP status: ${resp ? resp.status() : 'N/A'}, Final URL: ${page.url()}`);
               pass = gatekeeperDetected && resp && resp.status() === 200;
               errorDetails = pass ? '' : gatekeeperDetected ? 
                 `Page did not load successfully after gatekeeper (status: ${resp ? resp.status() : 'N/A'})` : 
                 'Gatekeeper UI not detected when expected';
               if (!pass) await logPageDom(page, url, 'TC-10');
-              logger.info(`   TC-10: Result: ${pass ? 'Pass' : 'Fail'} (${errorDetails})`);
+              logger.info(`TC-10: Result: ${pass ? 'Pass' : 'Fail'} (${errorDetails})`);
               break;
             }
             case 'TC-11': {
-              // Verify insights/newsroom link navigation
-              logger.info(`   TC-11: Starting for ${url}`);
+              logger.info(`TC-11: Starting for ${url}`);
               await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
               await page.waitForTimeout(3000);
               const insightsLinkSelectors = [
@@ -960,24 +990,23 @@ function getBlobConfig() {
               if (!insightsLink || !selectedHref) {
                 pass = false;
                 errorDetails = 'No valid insights/newsroom link with href found';
-                logger.warn(`   TC-11: No valid link found`);
+                logger.warn(`TC-11: No valid link found`);
                 await logPageDom(page, url, 'TC-11');
                 break;
               }
               const targetUrl = new URL(selectedHref, page.url()).toString();
-              logger.info(`   TC-11: Navigating to ${targetUrl}`);
+              logger.info(`TC-11: Navigating to ${targetUrl}`);
               const newPage = await contextToUse.newPage();
               const response = await newPage.goto(targetUrl, { timeout: 30000, waitUntil: 'domcontentloaded' });
               pass = !!response && response.status() === 200;
               errorDetails = pass ? '' : `Navigating to ${targetUrl} resulted in status ${response ? response.status() : 'N/A'}`;
-              logger.info(`   TC-11: Navigation result: ${pass ? 'Pass' : 'Fail'}`);
+              logger.info(`TC-11: Navigation result: ${pass ? 'Pass' : 'Fail'}`);
               if (!pass) await logPageDom(newPage, targetUrl, 'TC-11');
               await newPage.close();
               break;
             }
             case 'TC-12': {
-              // Verify redirect to doccheck-login
-              logger.info(`   TC-12: Final URL: ${page.url()}`);
+              logger.info(`TC-12: Final URL: ${page.url()}`);
               const finalUrl = page.url();
               pass = finalUrl.includes('/account/doccheck-login');
               errorDetails = pass ? '' : `Expected redirect to "/account/doccheck-login" not found: ${finalUrl}`;
@@ -985,80 +1014,78 @@ function getBlobConfig() {
               break;
             }
             case 'TC-13': {
-              // Verify navigation through Produkte to Ultraschall
-              logger.info(`   TC-13: Starting for ${url}`);
+              logger.info(`TC-13: Starting for ${url}`);
               await page.waitForLoadState('networkidle');
               await page.waitForTimeout(500);
 
               const produkteButton = page.getByRole('button', { name: 'Produkte' }).first();
               try {
                 await produkteButton.waitFor({ state: 'visible', timeout: 30000 });
-                logger.info('   TC-13: Produkte button found and visible');
+                logger.info('TC-13: Produkte button found and visible');
               } catch (e) {
-                logger.warn('   TC-13: Produkte button not found or not visible within 30s');
+                logger.warn('TC-13: Produkte button not found or not visible within 30s');
                 pass = false;
                 errorDetails = 'Produkte button not found or not visible';
                 await logPageDom(page, url, 'TC-13');
                 break;
               }
-              logger.info(`   TC-13: Clicking Produkte button`);
+              logger.info(`TC-13: Clicking Produkte button`);
               await produkteButton.click();
 
               let ultraschallButton = page.getByRole('button', { name: 'Ultraschall' });
               try {
                 await ultraschallButton.waitFor({ state: 'visible', timeout: 10000 });
-                logger.info('   TC-13: Ultraschall submenu item found and visible via role');
+                logger.info('TC-13: Ultraschall submenu item found and visible via role');
               } catch (e) {
-                logger.info('   TC-13: Ultraschall not found via role, trying fallback');
+                logger.info('TC-13: Ultraschall not found via role, trying fallback');
                 ultraschallButton = page.locator('.menu-content-container-item-data', { hasText: 'Ultraschall' });
                 await ultraschallButton.waitFor({ state: 'visible', timeout: 5000 });
                 if (!(await ultraschallButton.isVisible())) {
-                  logger.warn('   TC-13: Ultraschall submenu item not found or not visible within 15s');
+                  logger.warn('TC-13: Ultraschall submenu item not found or not visible within 15s');
                   pass = false;
                   errorDetails = 'Ultraschall submenu item not found or not visible';
                   await logPageDom(page, url, 'TC-13');
                   break;
                 }
-                logger.info('   TC-13: Ultraschall submenu item found via fallback');
+                logger.info('TC-13: Ultraschall submenu item found via fallback');
               }
-              logger.info(`   TC-13: Clicking Ultraschall submenu item`);
+              logger.info(`TC-13: Clicking Ultraschall submenu item`);
               await ultraschallButton.click();
 
               const moreLink = page.locator('a[href="https://www.ge-ultraschall.com/"]');
               try {
                 await moreLink.waitFor({ state: 'visible', timeout: 30000 });
-                logger.info('   TC-13: Found "Mehr erfahren" link by href');
+                logger.info('TC-13: Found "Mehr erfahren" link by href');
               } catch (error) {
-                logger.info('   TC-13: "Mehr erfahren" link not found by href within 30 seconds');
+                logger.info('TC-13: "Mehr erfahren" link not found by href within 30 seconds');
                 const moreLinkByText = page.locator('a', { hasText: /> Mehr erfahren/i });
                 await moreLinkByText.waitFor({ state: 'visible', timeout: 5000 });
                 if (!(await moreLinkByText.isVisible())) {
-                  logger.warn('   TC-13: Fallback link not found or not visible');
+                  logger.warn('TC-13: Fallback link not found or not visible');
                   pass = false;
                   errorDetails = '"Mehr erfahren" link not found or not visible';
                   await logPageDom(page, url, 'TC-13');
                   break;
                 }
-                logger.info('   TC-13: Found "Mehr erfahren" link via text fallback');
+                logger.info('TC-13: Found "Mehr erfahren" link via text fallback');
               }
 
-              logger.info(`   TC-13: Clicking "Mehr erfahren" link`);
+              logger.info(`TC-13: Clicking "Mehr erfahren" link`);
               await moreLink.scrollIntoViewIfNeeded();
               await moreLink.click();
 
               await page.waitForNavigation({ timeout: 30000 }).catch(() => {
-                logger.info('   TC-13: Navigation wait timed out, proceeding with current URL');
+                logger.info('TC-13: Navigation wait timed out, proceeding with current URL');
               });
 
               const dest = page.url();
-              logger.info(`   TC-13: Navigated to ${dest}`);
+              logger.info(`TC-13: Navigated to ${dest}`);
               pass = dest.startsWith('https://gehealthcare-ultrasound.com/') || dest.startsWith('https://www.ge-ultraschall.com/');
               errorDetails = pass ? '' : `Navigation did not go to expected ultrasound site: ${dest}`;
               if (!pass) await logPageDom(page, url, 'TC-13');
               break;
             }
             case 'TC-14': {
-              // Verify HTTP status is 2xx or 3xx
               const c = resp ? resp.status() : 0;
               pass = (c >= 200 && c < 300) || HTTP_REDIRECT.includes(c);
               errorDetails = pass ? '' : `HTTP Status was ${c}, expected 2xx or 3xx`;
@@ -1071,7 +1098,7 @@ function getBlobConfig() {
             }
           }
         } catch (err) {
-          logger.error(`   EXCEPTION for ${id}: ${err.message}`);
+          logger.error(`EXCEPTION for ${id}: ${err.message}`);
           pass = false;
           errorDetails = `Exception during test execution for ${id}: ${err.message}`;
           await logPageDom(page, url, id);
@@ -1133,7 +1160,7 @@ function getBlobConfig() {
           .eq('run_id', runId)
           .eq('url', url)
           .in('test_id', failedTestIds);
-        if (updateError) logger.error('Error updating test results with media URLs:', updateError.message || updateError);
+        if (updateError) logger.error('Error updating test results with media URLs:', JSON.stringify(updateError, null, 2));
       }
 
       if (screenshotUrl) allScreenshotUrls.push(screenshotUrl);
@@ -1147,7 +1174,7 @@ function getBlobConfig() {
       results[idx]['Page Pass?'] = pagePassStatus;
 
       await updateProgress(idx + 1, startTime);
-      logger.info(`     ✔ ${(Date.now() - t0) / 1000}s`);
+      logger.info(`✔ ${(Date.now() - t0) / 1000}s`);
       await page.close();
       if (contextToUse !== context) await contextToUse.close();
     }
@@ -1160,7 +1187,7 @@ function getBlobConfig() {
 
     for (let batchIndex = 0; batchIndex < urlBatches.length; batchIndex++) {
       const batch = urlBatches[batchIndex];
-      logger.info(`\n➡  Batch ${batchIndex + 1}/${urlBatches.length}`);
+      logger.info(`\n➡ Batch ${batchIndex + 1}/${urlBatches.length}`);
       await Promise.all(
         batch.map((urlData, j) =>
           pTimeout(runUrl(urlData, batchIndex * CONCURRENCY + j), 90000, `URL processing timeout for ${urlData.url}`)
@@ -1175,7 +1202,7 @@ function getBlobConfig() {
         )
       );
       if (batchIndex < urlBatches.length - 1) {
-        logger.info('   Waiting 5 seconds before next batch...');
+        logger.info('Waiting 5 seconds before next batch...');
         await new Promise(resolve => setTimeout(resolve, BATCH_DELAY));
       }
     }
@@ -1201,7 +1228,7 @@ function getBlobConfig() {
     allTestIds.forEach(id => {
       const f = results.filter(r => r[id] === 'Fail').length;
       if (f > 0) {
-        logger.info(`  • ${f} × ${id}`);
+        logger.info(`• ${f} × ${id}`);
         testFailureSummary[id] = f;
       }
     });
@@ -1266,7 +1293,7 @@ function getBlobConfig() {
       urlResults: urlResults,
       screenshot_paths: allScreenshotUrls,
       video_paths: allVideoUrls,
-      environment // <-- add environment to summary
+      environment
     };
 
     const summaryFilePath = 'summary.json';
@@ -1301,7 +1328,7 @@ function getBlobConfig() {
     logger.info('Script completed successfully. Exiting with code 0.');
     process.exit(0);
   } catch (error) {
-    logger.error('Fatal error:', error.message || error);
+    logger.error('Fatal error:', JSON.stringify(error, null, 2));
     process.exit(1);
   }
 })();

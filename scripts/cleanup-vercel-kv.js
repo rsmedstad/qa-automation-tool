@@ -1,3 +1,4 @@
+// Purges outdated keys from Vercel KV based on a 60-day cutoff
 import fetch from 'node-fetch';
 
 const KV_REST_API_URL = process.env.KV_REST_API_URL?.replace(/\/+$/, '');

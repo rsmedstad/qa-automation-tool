@@ -93,3 +93,12 @@ th, td {
   scrollbar-color: #555 transparent; /* Darker thumb for Firefox in dark mode */
 }
 
+@media (max-width: 640px) {
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 4px;
+  }
+  .custom-scrollbar {
+    scrollbar-width: thin; /* ensure thin width on mobile */
+  }
+}
+
