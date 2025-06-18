@@ -11,7 +11,11 @@ if (!url || !key) {
 const supabase = createClient(url, key);
 
 try {
-  const { error } = await supabase.from('test_runs').select('id').limit(1);
+  // The test_runs table uses run_id as the primary key. Selecting a
+  // non-existent id column caused the previous keep-alive job to fail
+  // with "column test_runs.id does not exist". Query a valid column
+  // to verify connectivity instead.
+  const { error } = await supabase.from('test_runs').select('run_id').limit(1);
   if (error) {
     console.error('Ping failed:', error.message);
     process.exit(1);
