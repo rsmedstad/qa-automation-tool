@@ -1,8 +1,8 @@
-name: Keep Preview Supabase Alive
+name: Keep Test Supabase Alive
 
 on:
   schedule:
-    - cron: '0 */6 * * *'
+    - cron: '0 0 */3 * *'
   workflow_dispatch:
 
 jobs:
@@ -19,6 +19,6 @@ jobs:
         run: npm ci
       - name: Ping Supabase (SQL)
         env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: node scripts/ping-supabase.js
+          SUPABASE_TEST_URL: ${{ secrets.SUPABASE_TEST_URL }}
+          SUPABASE_TEST_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_TEST_SERVICE_ROLE_KEY }}
+        run: node scripts/ping-test-supabase.js

@@ -14,13 +14,18 @@ Runs a predefined suite of end-to-end checks, aggregates results in real time, a
 ## Status & CI
 
 - **Scheduled tests**: every 3 hours via GitHub Actions  
-- **Cleanup tasks**: every 3 days (Supabase & Vercel KV)  
+- **Cleanup tasks**: every 3 days (Supabase & Vercel KV)
+- **Preview DB keepalive**: every 3 days (test Supabase)
 - **Coverage**:  
   - Playwright tests for page structure, functionality and performance  
   - Manual-mode support via Excel input
 
 [![Run QA Tests](https://github.com/rsmedstad/qa-automation-tool/actions/workflows/run-qa.yml/badge.svg)](https://github.com/rsmedstad/qa-automation-tool/actions/workflows/run-qa.yml)  
 [![Data Cleanup](https://github.com/rsmedstad/qa-automation-tool/actions/workflows/cleanup.yml/badge.svg)](https://github.com/rsmedstad/qa-automation-tool/actions/workflows/cleanup.yml)
+
+### Preview DB Keepalive
+
+The workflow **Keep Test Supabase Alive** pings the preview database every three days using `scripts/ping-test-supabase.js`. It expects `SUPABASE_TEST_URL` and `SUPABASE_TEST_SERVICE_ROLE_KEY` secrets. The script first tries a `select_one` RPC and falls back to a simple `SELECT` query if that function is unavailable.
 
 ---
 
