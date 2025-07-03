@@ -17,8 +17,8 @@ jobs:
           node-version: '20'
       - name: Install dependencies
         run: npm ci
-      - name: Ping Supabase (SQL)
+      - name: Keep Supabase Active
         env:
           SUPABASE_TEST_URL: ${{ secrets.SUPABASE_TEST_URL }}
           SUPABASE_TEST_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_TEST_SERVICE_ROLE_KEY }}
-        run: node scripts/ping-test-supabase.js
+        run: node scripts/keepalive-test-supabase.js
