@@ -25,7 +25,7 @@ Runs a predefined suite of end-to-end checks, aggregates results in real time, a
 
 ### Preview DB Keepalive
 
-The workflow **Keep Test Supabase Alive** now inserts a heartbeat row every three days using `scripts/keepalive-test-supabase.js`. It expects `SUPABASE_TEST_URL` and `SUPABASE_TEST_SERVICE_ROLE_KEY` secrets. The script writes to a small `keepalive` table and prunes old rows to show ongoing activity.
+The workflow **Keep Test Supabase Alive** inserts a heartbeat row every three days using `scripts/keepalive-test-supabase.js`. It expects `SUPABASE_TEST_URL` and `SUPABASE_TEST_SERVICE_ROLE_KEY` secrets. The script writes to a small `keepalive` table and prunes old rows to show ongoing activity. If that table doesn't exist, it falls back to a simple read query so the database still registers usage.
 
 ---
 
