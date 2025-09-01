@@ -1,8 +1,10 @@
 name: Keep Test Supabase Alive
 
 on:
-  schedule:
-    - cron: '0 0 */3 * *'
+  # The test Supabase instance is currently paused, so disable the scheduled
+  # keepalive pings. The workflow can still be run manually if needed.
+  # schedule:
+  #   - cron: '0 0 */3 * *'
   workflow_dispatch:
 
 jobs:
