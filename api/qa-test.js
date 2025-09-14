@@ -890,7 +890,11 @@ function getBlobConfig() {
               const initialFormCount = initialForms.length;
               logger.info(`TC-08: Initial form count: ${initialFormCount}`);
 
-              let contact = page.locator('button[name="Open Form Overlay"], a[name="Open Form Overlay"]').first();
+              let contact = page.locator('button[name="Open Form Overlay"], a[name="Open Form Overlay"], button[name="Marketo Form Overlay"], a[name="Marketo Form Overlay"]').first();
+
+              if (!(await contact.count())) {
+                contact = page.locator('.ge-contact-us-button__contactus-action-button, .ge-contact-us-button button').first();
+              }
 
               if (!(await contact.count())) {
                 contact = page.locator('section.ge-category-hero button, section.campaign-hero__ctas-primary button, section.ge-category-hero a, section.campaign-hero__ctas-primary a')
@@ -906,7 +910,7 @@ function getBlobConfig() {
               }
 
               if (!(await contact.count())) {
-                contact = page.locator('[data-analytics-link-type="Category Hero"], [data-analytics-link-type="Campaign Hero"], [data-analytics-link-type="Contact Widget"]')
+                contact = page.locator('[data-analytics-link-type="Category Hero"], [data-analytics-link-type="Campaign Hero"], [data-analytics-link-type="Contact Widget"], [data-analytics-link-type="Product Hero V2"]')
                   .filter({ hasText: /contact|request|demander/i })
                   .first();
               }

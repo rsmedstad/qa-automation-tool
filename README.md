@@ -118,10 +118,24 @@ For details and any custom extraction, use the dashboard’s **Test Definitions*
 
 ---
 
-## Internal Use & Contact
+## Repository Architecture & Access
 
-This repository is public for transparency but intended **only** for internal use.  
-For assistance, please reach out via company channels (Teams/Outlook).
+This is the **private main repository** containing QA automation source code, workflows, and configurations.
+
+### Public Artifacts Access
+Test results and artifacts are automatically published to our public repository:
+- 🔗 **[qat-artifacts](https://github.com/rsmedstad/qat-artifacts)** - Public access to test results
+- All test runs publish summary.json, Excel results, and metadata here
+- Coworkers can access results without GitHub authentication
+- Data retention: 60 days, cleaned every 3 days
+
+### How it Works
+1. **Private code** (this repo) runs tests via GitHub Actions
+2. **Results publish** automatically to public qat-artifacts repo
+3. **Dashboard links** point to public artifacts for easy access
+4. **No authentication required** for viewing test results
+
+For assistance, reach out via company channels (Teams/Outlook).
 
 ---
 
