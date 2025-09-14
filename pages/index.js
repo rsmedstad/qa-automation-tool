@@ -857,7 +857,7 @@ export default function Dashboard() {
                                       <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
                                         <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
                                       </svg>
-                                      View Artifacts ({run.artifactCount || 0})
+                                      View Files on GitHub
                                     </a>
                                     {(run.screenshotPaths.length > 0 || run.videoPaths.length > 0) && (
                                       <button
@@ -870,8 +870,7 @@ export default function Dashboard() {
                                         }
                                         className="text-blue-500 hover:underline text-sm"
                                       >
-                                        {expandedRuns.includes(run.runId) ? 'Hide' : 'Show'} Artifacts (
-                                        {run.screenshotPaths.length + run.videoPaths.length})
+                                        {expandedRuns.includes(run.runId) ? 'Hide' : 'Show'} Download Links
                                       </button>
                                     )}
                                   </div>
@@ -1334,7 +1333,7 @@ export default function Dashboard() {
                       <li><strong>How to Run an Ad-hoc Crawl</strong>: In the "Request Ad-Hoc Crawl" section, enter your name, passphrase, and optionally upload a custom <a href="https://github.com/rsmedstad/qa-automation-tool/raw/225b4193b5f7ecce8813334f3c7763dfc27a0b5a/input.xlsx" target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">input.xlsx</a> file. Click "Run Test" to start.</li>
                       <li><strong>Getting Test Run Details & Artifacts</strong>: Each test generates artifacts (e.g., results-run_id.xlsx, summary.json). These can be accessed from the Recent Crawl Information table or directly from our public artifacts repository:
                         <ol>
-                          <li>Click "View Artifacts" in the Recent Crawl Information table, or</li>
+                          <li>Click "View Files on GitHub" in the Recent Crawl Information table, or</li>
                           <li>Go to <a href="https://github.com/rsmedstad/qat-artifacts" target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">github.com/rsmedstad/qat-artifacts</a></li>
                           <li>Navigate to the runs folder and find your run ID</li>
                           <li>Download the Excel results or view the summary JSON directly</li>
