@@ -849,7 +849,7 @@ export default function Dashboard() {
                                 {run.hasArtifacts || run.screenshotPaths.length > 0 || run.videoPaths.length > 0 ? (
                                   <div className="flex items-center space-x-2">
                                     <a
-                                      href={`https://github.com/rsmedstad/qa-automation-tool/actions/runs/${run.runId}`}
+                                      href={`https://github.com/rsmedstad/qat-artifacts/tree/main/runs/${run.runId}`}
                                       target="_blank"
                                       rel="noopener noreferrer"
                                       className="text-indigo-600 dark:text-indigo-400 hover:underline inline-flex items-center"
@@ -857,7 +857,7 @@ export default function Dashboard() {
                                       <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
                                         <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
                                       </svg>
-                                      View Actions ({run.artifactCount || 0})
+                                      View Artifacts ({run.artifactCount || 0})
                                     </a>
                                     {(run.screenshotPaths.length > 0 || run.videoPaths.length > 0) && (
                                       <button
@@ -883,31 +883,74 @@ export default function Dashboard() {
                             {expandedRuns.includes(run.runId) && (
                               <tr>
                                 <td colSpan="6" className="p-3 bg-gray-100 dark:bg-gray-700">
-                                  <div className="flex flex-wrap gap-2">
-                                    {[
-                                      ...run.screenshotPaths.map((url, idx) => (
-                                        <a
-                                          key={`screenshot-${idx}`}
-                                          href={url}
-                                          target="_blank"
-                                          rel="noopener noreferrer"
-                                          className="text-blue-500 hover:underline text-sm"
-                                        >
-                                          Screenshot {idx + 1}
-                                        </a>
-                                      )),
-                                      ...run.videoPaths.map((url, idx) => (
-                                        <a
-                                          key={`video-${idx}`}
-                                          href={url}
-                                          target="_blank"
-                                          rel="noopener noreferrer"
-                                          className="text-blue-500 hover:underline text-sm"
-                                        >
-                                          Video {idx + 1}
-                                        </a>
-                                      )),
-                                    ]}
+                                  <div className="space-y-2">
+                                    <div className="font-medium text-sm text-gray-600 dark:text-gray-400">Direct Download Links:</div>
+                                    <div className="flex flex-wrap gap-3">
+                                      <a
+                                        href={`https://raw.githubusercontent.com/rsmedstad/qat-artifacts/main/runs/${run.runId}/summary.json`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="inline-flex items-center text-blue-500 hover:underline text-sm"
+                                      >
+                                        <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                        </svg>
+                                        Summary JSON
+                                      </a>
+                                      <a
+                                        href={`https://github.com/rsmedstad/qat-artifacts/raw/main/runs/${run.runId}/results-${run.runId}.xlsx`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="inline-flex items-center text-blue-500 hover:underline text-sm"
+                                      >
+                                        <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 17v1a1 1 0 001 1h4a1 1 0 001-1v-1m3-2V10a2 2 0 00-2-2H8a2 2 0 00-2 2v5m3-2h6" />
+                                        </svg>
+                                        Results Excel
+                                      </a>
+                                      <a
+                                        href={`https://github.com/rsmedstad/qat-artifacts/tree/main/runs/${run.runId}`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="inline-flex items-center text-blue-500 hover:underline text-sm"
+                                      >
+                                        <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                                        </svg>
+                                        View All Files
+                                      </a>
+                                    </div>
+                                    {(run.screenshotPaths.length > 0 || run.videoPaths.length > 0) && (
+                                      <>
+                                        <div className="font-medium text-sm text-gray-600 dark:text-gray-400 mt-3">Media Files (from previous storage):</div>
+                                        <div className="flex flex-wrap gap-2">
+                                          {[
+                                            ...run.screenshotPaths.map((url, idx) => (
+                                              <a
+                                                key={`screenshot-${idx}`}
+                                                href={url}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="text-blue-500 hover:underline text-sm"
+                                              >
+                                                Screenshot {idx + 1}
+                                              </a>
+                                            )),
+                                            ...run.videoPaths.map((url, idx) => (
+                                              <a
+                                                key={`video-${idx}`}
+                                                href={url}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="text-blue-500 hover:underline text-sm"
+                                              >
+                                                Video {idx + 1}
+                                              </a>
+                                            )),
+                                          ]}
+                                        </div>
+                                      </>
+                                    )}
                                   </div>
                                 </td>
                               </tr>
@@ -1289,10 +1332,12 @@ export default function Dashboard() {
                       <li><strong>Ask Gemini Feature</strong>: Query test results or seek insights using natural language—unlock this with a passphrase for smart, AI-driven answers.</li>
                       <li><strong>Scheduled vs. Ad-hoc Crawls</strong>: Scheduled tests run automatically every three hours, while ad-hoc tests let you test immediately as needed.</li>
                       <li><strong>How to Run an Ad-hoc Crawl</strong>: In the "Request Ad-Hoc Crawl" section, enter your name, passphrase, and optionally upload a custom <a href="https://github.com/rsmedstad/qa-automation-tool/raw/225b4193b5f7ecce8813334f3c7763dfc27a0b5a/input.xlsx" target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">input.xlsx</a> file. Click "Run Test" to start.</li>
-                      <li><strong>Getting Test Run Details via GitHub Actions & Artifacts</strong>: Each test generates artifacts (e.g., results-run_id.xlsx, screenshots, videos for failures). These can be accessed from the Recent Crawl Information table or via GitHub Actions:
+                      <li><strong>Getting Test Run Details & Artifacts</strong>: Each test generates artifacts (e.g., results-run_id.xlsx, summary.json). These can be accessed from the Recent Crawl Information table or directly from our public artifacts repository:
                         <ol>
-                          <li>Go to <a href="https://github.com/rsmedstad/qa-automation-tool/actions" target="_blank" rel="noopener noreferrer">github.com/rsmedstad/qa-automation-tool/actions</a>.</li>
-                          <li>Select a run, scroll to "Artifacts," and download files like results or media.</li>
+                          <li>Click "View Artifacts" in the Recent Crawl Information table, or</li>
+                          <li>Go to <a href="https://github.com/rsmedstad/qat-artifacts" target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">github.com/rsmedstad/qat-artifacts</a></li>
+                          <li>Navigate to the runs folder and find your run ID</li>
+                          <li>Download the Excel results or view the summary JSON directly</li>
                         </ol>
                       </li>
                     </ul>
