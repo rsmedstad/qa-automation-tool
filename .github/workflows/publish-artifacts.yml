@@ -1,0 +1,125 @@
+name: Publish Public Artifacts (TEST)
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'GitHub Run ID to publish'
+        required: true
+        type: string
+
+jobs:
+  publish-artifacts:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main repository
+        uses: actions/checkout@v4
+
+      - name: Download workflow artifacts
+        uses: actions/download-artifact@v4
+        with:
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Prepare public artifacts
+        id: prepare
+        run: |
+          echo "Preparing artifacts for run ${{ inputs.run_id }}"
+
+          # Create clean structure
+          mkdir -p public-artifacts
+
+          # Copy only essential files (not media)
+          if [ -f "summary-json-${{ inputs.run_id }}/summary.json" ]; then
+            cp "summary-json-${{ inputs.run_id }}/summary.json" public-artifacts/
+            echo "summary_exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "summary_exists=false" >> $GITHUB_OUTPUT
+            echo "Warning: summary.json not found"
+          fi
+
+          if [ -f "qa-test-results-${{ inputs.run_id }}/results-${{ inputs.run_id }}.xlsx" ]; then
+            cp "qa-test-results-${{ inputs.run_id }}/results-${{ inputs.run_id }}.xlsx" public-artifacts/
+            echo "results_exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "results_exists=false" >> $GITHUB_OUTPUT
+          fi
+
+          # Create metadata file with Blob storage URLs
+          cat > public-artifacts/metadata.json <<EOF
+          {
+            "run_id": "${{ inputs.run_id }}",
+            "timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+            "screenshots_base_url": "https://${{ secrets.STORAGE_BUCKET }}.blob.core.windows.net/screenshots/run-${{ inputs.run_id }}/",
+            "videos_base_url": "https://${{ secrets.STORAGE_BUCKET }}.blob.core.windows.net/videos/run-${{ inputs.run_id }}/",
+            "source_repo": "rsmedstad/qa-automation-tool",
+            "workflow_url": "https://github.com/rsmedstad/qa-automation-tool/actions/runs/${{ inputs.run_id }}"
+          }
+          EOF
+
+          ls -la public-artifacts/
+
+      - name: Publish to artifacts repository
+        if: steps.prepare.outputs.summary_exists == 'true'
+        env:
+          ARTIFACTS_TOKEN: ${{ secrets.ARTIFACTS_REPO_TOKEN }}
+        run: |
+          # Configure git
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "github-actions[bot]"
+
+          # Clone artifacts repo with authentication
+          git clone https://x-access-token:${ARTIFACTS_TOKEN}@github.com/rsmedstad/qat-artifacts.git artifacts-repo
+
+          # Create directory structure
+          mkdir -p "artifacts-repo/runs/${{ inputs.run_id }}"
+
+          # Copy prepared artifacts
+          cp -r public-artifacts/* "artifacts-repo/runs/${{ inputs.run_id }}/"
+
+          # Create index file for easy browsing
+          cat > "artifacts-repo/runs/${{ inputs.run_id }}/README.md" <<EOF
+          # QA Test Run ${{ inputs.run_id }}
+
+          Generated: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+
+          ## Files
+          - [summary.json](./summary.json) - Test execution summary
+          - [results.xlsx](./results-${{ inputs.run_id }}.xlsx) - Detailed test results
+          - [metadata.json](./metadata.json) - Media file locations
+
+          ## Media Files
+          Screenshots and videos are stored in Azure Blob Storage.
+          See metadata.json for access URLs.
+          EOF
+
+          # Commit and push
+          cd artifacts-repo
+          git add .
+          git diff --staged --quiet || {
+            git commit -m "Add artifacts for run ${{ inputs.run_id }}"
+            git push origin main
+            echo "✅ Artifacts published successfully"
+          } || echo "No changes to commit"
+
+      - name: Upload media to Blob Storage
+        if: steps.prepare.outputs.summary_exists == 'true'
+        env:
+          BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
+          STORAGE_BUCKET: ${{ secrets.STORAGE_BUCKET }}
+        run: |
+          # This step would upload screenshots/videos to Blob storage
+          # Currently a placeholder - will be implemented when needed
+          echo "Media upload to Blob storage will be implemented in next phase"
+
+          # Check if screenshots exist
+          if [ -d "screenshots-${{ inputs.run_id }}" ]; then
+            echo "Found screenshots to upload"
+            # TODO: Upload to Blob storage using Azure CLI or API
+          fi
+
+          # Check if videos exist
+          if [ -d "videos-${{ inputs.run_id }}" ]; then
+            echo "Found videos to upload"
+            # TODO: Upload to Blob storage using Azure CLI or API
+          fi
