@@ -200,3 +200,69 @@ jobs:
         with:
           name: summary-json-${{ github.run_id }}
           path: summary.json
+
+      - name: Publish to public artifacts repository
+        if: always()
+        continue-on-error: true
+        env:
+          ARTIFACTS_TOKEN: ${{ secrets.ARTIFACTS_REPO_TOKEN }}
+        run: |
+          echo "Publishing artifacts to public repository..."
+
+          # Configure git
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "github-actions[bot]"
+
+          # Clone artifacts repo with authentication
+          git clone https://x-access-token:${ARTIFACTS_TOKEN}@github.com/rsmedstad/qat-artifacts.git artifacts-repo || {
+            echo "Failed to clone artifacts repo. Skipping publish step."
+            exit 0
+          }
+
+          # Create directory for this run
+          mkdir -p "artifacts-repo/runs/${{ github.run_id }}"
+
+          # Copy artifacts if they exist
+          if [ -f "summary.json" ]; then
+            cp summary.json "artifacts-repo/runs/${{ github.run_id }}/"
+          fi
+
+          if [ -f "results-${{ github.run_id }}.xlsx" ]; then
+            cp "results-${{ github.run_id }}.xlsx" "artifacts-repo/runs/${{ github.run_id }}/"
+          fi
+
+          # Create metadata file
+          cat > "artifacts-repo/runs/${{ github.run_id }}/metadata.json" <<EOF
+          {
+            "run_id": "${{ github.run_id }}",
+            "timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+            "initiator": "${{ env.INITIATOR }}",
+            "event": "${{ github.event_name }}",
+            "source_repo": "rsmedstad/qa-automation-tool",
+            "workflow_url": "https://github.com/rsmedstad/qa-automation-tool/actions/runs/${{ github.run_id }}"
+          }
+          EOF
+
+          # Create README for this run
+          cat > "artifacts-repo/runs/${{ github.run_id }}/README.md" <<EOF
+          # QA Test Run ${{ github.run_id }}
+
+          - **Date**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          - **Initiator**: ${{ env.INITIATOR }}
+          - **Event**: ${{ github.event_name }}
+
+          ## Files
+          - summary.json - Test execution summary
+          - results-${{ github.run_id }}.xlsx - Detailed test results
+          - metadata.json - Run metadata
+          EOF
+
+          # Commit and push
+          cd artifacts-repo
+          git add .
+          git diff --staged --quiet || {
+            git commit -m "Add artifacts for run ${{ github.run_id }} (${{ github.event_name }})"
+            git push origin main || echo "Push failed, but continuing workflow"
+          }
+
+          echo "✅ Artifacts published to public repository"
