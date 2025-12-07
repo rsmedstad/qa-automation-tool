@@ -688,6 +688,7 @@ function getBlobConfig() {
           await insertTestResult(url, region, id, 'fail', `Navigation failed: ${error.message}`, null, null);
         }
         testIds.filter(id => !allTestIds.includes(id)).forEach(id => results[idx][id] = 'NA');
+        results[idx]['Page Pass?'] = 'Fail';
         await page.close();
         if (contextToUse !== context) await contextToUse.close();
         await updateProgress(idx + 1, startTime);
@@ -696,6 +697,28 @@ function getBlobConfig() {
       }
 
       results[idx]['HTTP Status'] = resp ? resp.status() : 'N/A';
+
+      // Check for HTTP error status codes - skip testing error pages
+      // Note: This early exit prevents wasting time running tests on 4xx/5xx error pages
+      // (which would produce misleading results) and complements TC-14, which validates
+      // that 2xx/3xx responses are received for successful page loads
+      const httpStatus = resp ? resp.status() : 0;
+      if (httpStatus >= 400) {
+        const errorMessage = `HTTP ${httpStatus} error - cannot test error page`;
+        logger.error(`${errorMessage} for ${url}`);
+        const validTestIds = testIds.filter(id => allTestIds.includes(id));
+        for (const id of validTestIds) {
+          results[idx][id] = 'Fail';
+          await insertTestResult(url, region, id, 'fail', errorMessage, null, null);
+        }
+        testIds.filter(id => !allTestIds.includes(id)).forEach(id => results[idx][id] = 'NA');
+        results[idx]['Page Pass?'] = 'Fail';
+        await page.close();
+        if (contextToUse !== context) await contextToUse.close();
+        await updateProgress(idx + 1, startTime);
+        logger.error(`❌ Failed HTTP status ${(Date.now() - t0) / 1000}s`);
+        return;
+      }
 
       const failedTestIds = [];
       const validTestIds = testIds.filter(id => allTestIds.includes(id));
