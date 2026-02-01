@@ -2,7 +2,7 @@ name: Run QA Tests
 
 on:
   schedule:
-    - cron: '0 */6 * * *'  # Runs every 6 hours
+    - cron: '0 */6 * * *'  # Runs every 6 hours (kept active 2026-02-01)
   workflow_dispatch:
     inputs:
       initiator:
