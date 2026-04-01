@@ -503,12 +503,16 @@ function getBlobConfig() {
       }
     }
 
-    // Handle Gatekeeper interstitial if present
+    // Handle Gatekeeper interstitial if present (US React site or AEM global-gateway)
     async function handleGatekeeper(page, url) {
       const gatekeeperSelectors = ['section.ge-gatekeeper', '[class*="gatekeeper"]'];
       const yesButtonSelector = 'button.ge-gatekeeper-button.ge-button--solid-primary';
+      // AEM global-gateway (country selector on en-gb, de-de, etc.)
+      const gatewaySelectors = ['.global-gateway-component'];
+      const gatewayContinueSelector = '.global-gateway-component-continue-btn';
       let gatekeeperDetected = false;
       try {
+        // Check for US-style gatekeeper first
         for (const selector of gatekeeperSelectors) {
           const gatekeeper = await page.waitForSelector(selector, { timeout: DEFAULT_TIMEOUT });
           if (gatekeeper) {
@@ -522,6 +526,23 @@ function getBlobConfig() {
               logger.info('Navigated after gatekeeper');
             }
             break;
+          }
+        }
+        // Check for AEM global-gateway (country selector)
+        if (!gatekeeperDetected) {
+          for (const selector of gatewaySelectors) {
+            const gateway = await page.$(selector);
+            if (gateway) {
+              gatekeeperDetected = true;
+              logger.info(`AEM global-gateway detected with selector: ${selector}`);
+              const continueBtn = await page.$(gatewayContinueSelector);
+              if (continueBtn) {
+                await continueBtn.click();
+                logger.info('Clicked "Continue" on global-gateway');
+                await page.waitForTimeout(1000);
+              }
+              break;
+            }
           }
         }
       } catch (error) {
@@ -766,7 +787,7 @@ function getBlobConfig() {
               break;
             }
             case 'TC-05': {
-              pass = !!(await page.$('main, [class*="main"]'));
+              pass = !!(await page.$('main, [role="main"], .root.container.responsivegrid, [class*="main"]'));
               errorDetails = pass ? '' : 'Main content element not found';
               break;
             }
@@ -921,20 +942,20 @@ function getBlobConfig() {
 
               if (!(await contact.count())) {
                 contact = page.locator('section.ge-category-hero button, section.campaign-hero__ctas-primary button, section.ge-category-hero a, section.campaign-hero__ctas-primary a')
-                  .filter({ hasText: /contact|request|demander/i })
+                  .filter({ hasText: /contact|request|demander|kontakt|anfrag|enquir/i })
                   .first();
               }
 
               if (!(await contact.count())) {
-                contact = page.locator('button').filter({ hasText: /contact|request|demander/i }).first();
+                contact = page.locator('button').filter({ hasText: /contact|request|demander|kontakt|anfrag|enquir/i }).first();
               }
               if (!(await contact.count())) {
-                contact = page.locator('a').filter({ hasText: /contact|request|demander/i }).first();
+                contact = page.locator('a').filter({ hasText: /contact|request|demander|kontakt|anfrag|enquir/i }).first();
               }
 
               if (!(await contact.count())) {
                 contact = page.locator('[data-analytics-link-type="Category Hero"], [data-analytics-link-type="Campaign Hero"], [data-analytics-link-type="Contact Widget"], [data-analytics-link-type="Product Hero V2"]')
-                  .filter({ hasText: /contact|request|demander/i })
+                  .filter({ hasText: /contact|request|demander|kontakt|anfrag|enquir/i })
                   .first();
               }
 
@@ -1045,56 +1066,58 @@ function getBlobConfig() {
               await page.waitForLoadState('networkidle');
               await page.waitForTimeout(500);
 
+              // Try US-style navigation first (Produkte button -> Ultraschall dropdown)
               const produkteButton = page.getByRole('button', { name: 'Produkte' }).first();
+              let usedAemFallback = false;
               try {
-                await produkteButton.waitFor({ state: 'visible', timeout: 30000 });
-                logger.info('TC-13: Produkte button found and visible');
-              } catch (e) {
-                logger.warn('TC-13: Produkte button not found or not visible within 30s');
-                pass = false;
-                errorDetails = 'Produkte button not found or not visible';
-                await logPageDom(page, url, 'TC-13');
-                break;
-              }
-              logger.info(`TC-13: Clicking Produkte button`);
-              await produkteButton.click();
+                await produkteButton.waitFor({ state: 'visible', timeout: 5000 });
+                logger.info('TC-13: Produkte button found (US-style nav)');
+                await produkteButton.click();
 
-              let ultraschallButton = page.getByRole('button', { name: 'Ultraschall' });
-              try {
-                await ultraschallButton.waitFor({ state: 'visible', timeout: 10000 });
-                logger.info('TC-13: Ultraschall submenu item found and visible via role');
-              } catch (e) {
-                logger.info('TC-13: Ultraschall not found via role, trying fallback');
-                ultraschallButton = page.locator('.menu-content-container-item-data', { hasText: 'Ultraschall' });
-                await ultraschallButton.waitFor({ state: 'visible', timeout: 5000 });
-                if (!(await ultraschallButton.isVisible())) {
-                  logger.warn('TC-13: Ultraschall submenu item not found or not visible within 15s');
-                  pass = false;
-                  errorDetails = 'Ultraschall submenu item not found or not visible';
-                  await logPageDom(page, url, 'TC-13');
-                  break;
+                let ultraschallButton = page.getByRole('button', { name: 'Ultraschall' });
+                try {
+                  await ultraschallButton.waitFor({ state: 'visible', timeout: 10000 });
+                  logger.info('TC-13: Ultraschall submenu item found and visible via role');
+                } catch (e) {
+                  logger.info('TC-13: Ultraschall not found via role, trying fallback');
+                  ultraschallButton = page.locator('.menu-content-container-item-data', { hasText: 'Ultraschall' });
+                  await ultraschallButton.waitFor({ state: 'visible', timeout: 5000 });
+                  if (!(await ultraschallButton.isVisible())) {
+                    logger.warn('TC-13: Ultraschall submenu item not found or not visible within 15s');
+                    pass = false;
+                    errorDetails = 'Ultraschall submenu item not found or not visible';
+                    await logPageDom(page, url, 'TC-13');
+                    break;
+                  }
+                  logger.info('TC-13: Ultraschall submenu item found via fallback');
                 }
-                logger.info('TC-13: Ultraschall submenu item found via fallback');
+                logger.info(`TC-13: Clicking Ultraschall submenu item`);
+                await ultraschallButton.click();
+              } catch (e) {
+                // AEM-style navigation: "Mehr erfahren" link is directly in the nav
+                logger.info('TC-13: Produkte button not found, trying AEM nav fallback');
+                usedAemFallback = true;
               }
-              logger.info(`TC-13: Clicking Ultraschall submenu item`);
-              await ultraschallButton.click();
 
-              const moreLink = page.locator('a[href="https://www.ge-ultraschall.com/"]');
+              // Find the "Mehr erfahren" link to ge-ultraschall.com
+              let moreLink = page.locator('a[href="https://www.ge-ultraschall.com/"]');
               try {
-                await moreLink.waitFor({ state: 'visible', timeout: 30000 });
+                await moreLink.waitFor({ state: 'visible', timeout: usedAemFallback ? 5000 : 30000 });
                 logger.info('TC-13: Found "Mehr erfahren" link by href');
               } catch (error) {
-                logger.info('TC-13: "Mehr erfahren" link not found by href within 30 seconds');
+                logger.info('TC-13: "Mehr erfahren" link not found by href, trying text fallback');
                 const moreLinkByText = page.locator('a', { hasText: /> Mehr erfahren/i });
-                await moreLinkByText.waitFor({ state: 'visible', timeout: 5000 });
-                if (!(await moreLinkByText.isVisible())) {
+                try {
+                  await moreLinkByText.waitFor({ state: 'visible', timeout: 5000 });
+                  moreLink = moreLinkByText;
+                  logger.info('TC-13: Found "Mehr erfahren" link via text fallback');
+                } catch (e2) {
                   logger.warn('TC-13: Fallback link not found or not visible');
                   pass = false;
                   errorDetails = '"Mehr erfahren" link not found or not visible';
                   await logPageDom(page, url, 'TC-13');
                   break;
                 }
-                logger.info('TC-13: Found "Mehr erfahren" link via text fallback');
               }
 
               logger.info(`TC-13: Clicking "Mehr erfahren" link`);
