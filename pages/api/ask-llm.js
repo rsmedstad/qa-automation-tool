@@ -1,5 +1,6 @@
 // pages/api/ask-llm.js
 
+import { timingSafeEqual } from 'crypto';
 import { createClient } from '@supabase/supabase-js';
 import { kv } from '@vercel/kv';
 import { v4 as uuidv4 } from 'uuid';
@@ -60,7 +61,8 @@ export default async function handler(req, res) {
   const { question, passphrase } = req.body;
 
   // Validate passphrase
-  if (passphrase !== process.env.GEMINI_PASSPHRASE) {
+  const expected = process.env.GEMINI_PASSPHRASE || '';
+  if (!passphrase || passphrase.length !== expected.length || !timingSafeEqual(Buffer.from(passphrase), Buffer.from(expected))) {
     return res.status(401).json({ message: 'Invalid passphrase' });
   }
 
@@ -74,10 +76,13 @@ export default async function handler(req, res) {
   }
 
   // Basic question validation
-  if (question.trim().length < 3) {
+  if (!question || question.trim().length < 3) {
     return res
       .status(400)
       .json({ message: 'Please ask about a specific test or run!' });
+  }
+  if (question.length > 1000) {
+    return res.status(400).json({ message: 'Question is too long (max 1000 characters)' });
   }
 
   try {
@@ -214,6 +219,6 @@ export default async function handler(req, res) {
     return res.status(200).json({ answer });
   } catch (err) {
     console.error('Error in ask-llm:', err);
-    return res.status(500).json({ message: 'AI generation failed', details: err.message });
+    return res.status(500).json({ message: 'AI generation failed' });
   }
 }

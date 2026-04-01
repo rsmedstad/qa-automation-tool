@@ -1,3 +1,4 @@
+import { timingSafeEqual } from 'crypto';
 /*───────────────────────────────────────────────────────────────────────────────
   trigger-test.js
   ----------
@@ -44,7 +45,8 @@ export default async function handler(req, res) {
     return res.status(400).json({ message: 'Passphrase is required' });
   }
 
-  if (passphrase !== process.env.QA_PASSPHRASE) {
+  const expected = process.env.QA_PASSPHRASE || '';
+  if (passphrase.length !== expected.length || !timingSafeEqual(Buffer.from(passphrase), Buffer.from(expected))) {
     return res.status(403).json({ message: 'Invalid passphrase' });
   }
 
@@ -58,7 +60,7 @@ export default async function handler(req, res) {
     const { Octokit } = await import('@octokit/rest');
     const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
 
-    console.log('Dispatching workflow with passphrase:', passphrase);
+    console.log('Dispatching workflow...');
 
     await octokit.actions.createWorkflowDispatch({
       owner: 'rsmedstad',
@@ -70,7 +72,6 @@ export default async function handler(req, res) {
         file_url: fileUrl,
         capture_video: captureVideo ? 'true' : 'false',
         run_env: process.env.VERCEL_ENV || 'production',
-        passphrase,
       },
     });
 

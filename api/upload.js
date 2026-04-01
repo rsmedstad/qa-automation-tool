@@ -8,6 +8,7 @@
   • Does not write files locally, avoiding issues with uploads/ directory
 ───────────────────────────────────────────────────────────────────────────────*/
 
+import { timingSafeEqual } from "crypto";
 import { Octokit } from "@octokit/core";
 import formidable from "formidable";
 import { createReadStream } from "fs";
@@ -60,7 +61,7 @@ export default async function handler(req, res) {
     const pass = fields.passphrase && fields.passphrase[0] ? fields.passphrase[0].trim().toLowerCase() : null;
     const file = files.file && files.file[0] ? files.file[0] : null;
 
-    console.log("Extracted fields:", { passphrase: pass, file });
+    console.log("Extracted fields:", { passphrase: pass ? '[REDACTED]' : null, file: !!file });
 
     // Step 5: Validate passphrase
     if (!pass) {
@@ -68,14 +69,8 @@ export default async function handler(req, res) {
       return res.status(401).json({ error: "Passphrase is required" });
     }
     const expectedPassphrase = process.env.QA_PASSPHRASE.trim().toLowerCase();
-    console.log("Comparing passphrases:", {
-      sent: pass,
-      sentLength: pass.length,
-      expected: expectedPassphrase,
-      expectedLength: expectedPassphrase.length,
-    });
-    if (pass !== expectedPassphrase) {
-      console.log("Passphrase mismatch:", pass, expectedPassphrase);
+    if (pass.length !== expectedPassphrase.length || !timingSafeEqual(Buffer.from(pass), Buffer.from(expectedPassphrase))) {
+      console.log("Passphrase mismatch");
       return res.status(401).json({ error: "Bad pass-phrase" });
     }
 
@@ -144,7 +139,6 @@ export default async function handler(req, res) {
         file: "run-qa.yml",
         ref: "main",
         inputs: {
-          passphrase: process.env.QA_PASSPHRASE,
           asset_id: assetId.toString(),
           release_id: releaseId.toString(),
         },
@@ -156,6 +150,6 @@ export default async function handler(req, res) {
     return res.status(200).json({ ok: true, message: "Workflow dispatched ✅" });
   } catch (error) {
     console.error("Error in Vercel Function:", error);
-    return res.status(500).json({ error: `Internal server error: ${error.message}` });
+    return res.status(500).json({ error: 'Internal server error' });
   }
 }

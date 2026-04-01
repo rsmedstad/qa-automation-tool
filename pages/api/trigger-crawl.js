@@ -1,4 +1,5 @@
 // pages/api/trigger-crawl.js
+import { timingSafeEqual } from 'crypto';
 import ExcelJS from 'exceljs';
 import { put } from '@vercel/blob';
 import { Octokit } from '@octokit/rest';
@@ -25,7 +26,8 @@ export default async function handler(req, res) {
     return res.status(400).json({ message: 'Passphrase is required' });
   }
 
-  if (passphrase !== process.env.QA_PASSPHRASE) {
+  const expected = process.env.QA_PASSPHRASE || '';
+  if (passphrase.length !== expected.length || !timingSafeEqual(Buffer.from(passphrase), Buffer.from(expected))) {
     return res.status(403).json({ message: 'Invalid passphrase' });
   }
 
@@ -62,7 +64,7 @@ export default async function handler(req, res) {
 
     const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
     const newRunId = `run-${uuidv4()}`;
-    console.log('Dispatching workflow with passphrase:', passphrase);
+    console.log('Dispatching workflow...');
     const response = await octokit.actions.createWorkflowDispatch({
       owner: 'rsmedstad',
       repo: 'qa-automation-tool',
@@ -72,13 +74,12 @@ export default async function handler(req, res) {
         initiator,
         file_url: blob.url,
         run_env: process.env.VERCEL_ENV || 'production',
-        passphrase,
       },
     });
 
     res.status(200).json({ message: 'Crawl initiated', runId: newRunId });
   } catch (error) {
     console.error('Error triggering crawl:', error);
-    res.status(500).json({ message: 'Failed to trigger crawl', error: error.message });
+    res.status(500).json({ message: 'Failed to trigger crawl' });
   }
 }

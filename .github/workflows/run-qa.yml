@@ -12,9 +12,6 @@ on:
       file_url:
         description: 'URL to the input.xlsx file'
         required: false
-      passphrase:
-        description: 'Secret phrase'
-        required: true
       capture_video:
         description: 'Whether to capture video for all URLs (true/false)'
         required: true
@@ -61,14 +58,6 @@ jobs:
 
       - name: Install Playwright browsers
         run: npx playwright install --with-deps
-
-      - name: Validate pass-phrase for manual runs
-        if: github.event_name == 'workflow_dispatch'
-        run: |
-          if [ "${{ inputs.passphrase }}" != "${{ secrets.QA_PASSPHRASE }}" ]; then
-            echo "::error ::Incorrect pass-phrase"
-            exit 1
-          fi
 
       - name: Download custom input.xlsx for manual runs
         if: github.event_name == 'workflow_dispatch' && inputs.file_url != ''
@@ -193,6 +182,7 @@ jobs:
           echo "$PAYLOAD" | jq .
           RESPONSE=$(curl -X POST "$VERCEL_URL/api/store-run" \
                -H "Content-Type: application/json" \
+               -H "Authorization: Bearer ${{ secrets.QA_PASSPHRASE }}" \
                -d "$PAYLOAD" \
                --fail \
                --show-error \

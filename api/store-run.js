@@ -21,6 +21,13 @@ export default async function handler(req, res) {
     return res.status(405).json({ message: 'Method Not Allowed' });
   }
 
+  // Authenticate: require Bearer token matching QA_PASSPHRASE
+  const authHeader = req.headers.authorization;
+  const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+  if (!token || token !== process.env.QA_PASSPHRASE) {
+    return res.status(401).json({ message: 'Unauthorized' });
+  }
+
   // Extract run data and runId from request body
   const runData = req.body;
   const runId = runData.runId;
@@ -51,6 +58,6 @@ export default async function handler(req, res) {
   } catch (error) {
     // Log detailed error and respond with failure
     console.error('Error storing run:', error.stack || error.message);
-    return res.status(500).json({ message: 'Failed to store run', details: error.message });
+    return res.status(500).json({ message: 'Failed to store run' });
   }
 }
