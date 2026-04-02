@@ -511,10 +511,11 @@ function getBlobConfig() {
       const gatewaySelectors = ['.global-gateway-component'];
       const gatewayContinueSelector = '.global-gateway-component-continue-btn';
       let gatekeeperDetected = false;
+
+      // Check for US-style gatekeeper (use page.$ to avoid blocking timeout)
       try {
-        // Check for US-style gatekeeper first
         for (const selector of gatekeeperSelectors) {
-          const gatekeeper = await page.waitForSelector(selector, { timeout: DEFAULT_TIMEOUT });
+          const gatekeeper = await page.$(selector);
           if (gatekeeper) {
             gatekeeperDetected = true;
             logger.info(`Gatekeeper detected with selector: ${selector}`);
@@ -528,8 +529,13 @@ function getBlobConfig() {
             break;
           }
         }
-        // Check for AEM global-gateway (country selector)
-        if (!gatekeeperDetected) {
+      } catch (error) {
+        logger.info('Error handling US gatekeeper:', error.message);
+      }
+
+      // Check for AEM global-gateway (country selector)
+      if (!gatekeeperDetected) {
+        try {
           for (const selector of gatewaySelectors) {
             const gateway = await page.$(selector);
             if (gateway) {
@@ -544,10 +550,11 @@ function getBlobConfig() {
               break;
             }
           }
+        } catch (error) {
+          logger.info('Error handling AEM gateway:', error.message);
         }
-      } catch (error) {
-        logger.info('No gatekeeper found or error handling:', error.message);
       }
+
       logger.info(`Gatekeeper detection result: ${gatekeeperDetected}`);
       return gatekeeperDetected;
     }
@@ -980,16 +987,30 @@ function getBlobConfig() {
               }
 
               await contact.scrollIntoViewIfNeeded();
+
+              // Record current URL before clicking to detect navigation-based contact
+              const urlBeforeClick = page.url();
               await contact.click({ force: true });
 
-              logger.info(`TC-08: Waiting for form count to increase`);
+              logger.info(`TC-08: Waiting for form count to increase or navigation to contact page`);
+              // Check if a form overlay appeared
               pass = await page.waitForFunction(
                 prevCount => document.querySelectorAll('form').length > prevCount,
                 initialFormCount,
                 { timeout: 12000 }
               ).then(() => true).catch(() => false);
-              errorDetails = pass ? '' : `Form count did not increase (initial: ${initialFormCount}, current: ${await page.evaluate(() => document.querySelectorAll('form').length)})`;
-              logger.info(`TC-08: Form count check: ${pass ? 'Pass' : 'Fail'}`);
+
+              // If no form overlay, check if we navigated to a contact page (AEM pattern)
+              if (!pass) {
+                const urlAfterClick = page.url();
+                if (urlAfterClick !== urlBeforeClick && /contact/i.test(urlAfterClick)) {
+                  pass = true;
+                  logger.info(`TC-08: Contact link navigated to ${urlAfterClick}`);
+                }
+              }
+
+              errorDetails = pass ? '' : `Form count did not increase and no contact page navigation (initial: ${initialFormCount}, current: ${await page.evaluate(() => document.querySelectorAll('form').length)})`;
+              logger.info(`TC-08: Form/contact check: ${pass ? 'Pass' : 'Fail'}`);
               if (!pass) await logPageDom(page, url, 'TC-08');
               break;
             }
@@ -1094,9 +1115,26 @@ function getBlobConfig() {
                 logger.info(`TC-13: Clicking Ultraschall submenu item`);
                 await ultraschallButton.click();
               } catch (e) {
-                // AEM-style navigation: "Mehr erfahren" link is directly in the nav
+                // AEM-style navigation: need to open the nav menu and Ultraschall submenu
                 logger.info('TC-13: Produkte button not found, trying AEM nav fallback');
                 usedAemFallback = true;
+                try {
+                  // Find the top-level nav item containing Ultraschall and hover/click to open submenu
+                  const navItem = page.locator('li.ge_nav-menu-item').filter({ hasText: 'Ultraschall' }).first();
+                  if (await navItem.count()) {
+                    await navItem.hover();
+                    await page.waitForTimeout(500);
+                    // Click the "Ultraschall" menu label to reveal tertiary links
+                    const ultraschallLabel = page.locator('span.menu-label', { hasText: 'Ultraschall' }).first();
+                    if (await ultraschallLabel.count()) {
+                      await ultraschallLabel.click();
+                      await page.waitForTimeout(500);
+                      logger.info('TC-13: AEM Ultraschall submenu opened');
+                    }
+                  }
+                } catch (navError) {
+                  logger.info('TC-13: Error opening AEM nav:', navError.message);
+                }
               }
 
               // Find the "Mehr erfahren" link to ge-ultraschall.com
