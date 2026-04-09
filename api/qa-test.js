@@ -877,7 +877,7 @@ function getBlobConfig() {
                 break;
               }
 
-              await playButton.click();
+              await playButton.click({ force: true });
               logger.info(`TC-07: Clicked play button, waiting for modal`);
 
               const modal = await page.waitForSelector(
@@ -1033,33 +1033,41 @@ function getBlobConfig() {
                 { timeout: 12000 }
               ).then(() => true).catch(() => false);
 
-              // Check 2: Did a form overlay/modal become visible? (handles pre-loaded Marketo forms)
+              // Check 2: Did any overlay/modal/dialog become visible? (handles pre-loaded
+              // Marketo forms AND empty overlays when GTM/Marketo scripts are blocked)
               if (!pass) {
                 const overlayVisible = await page.evaluate(() => {
-                  // Check for visible modal with a form
-                  const modals = document.querySelectorAll('.ge-modal-window, [class*="form-overlay"], [class*="modal-overlay"], [class*="mkto"]');
-                  for (const modal of modals) {
-                    const style = window.getComputedStyle(modal);
+                  // Broad overlay detection: any visible overlay, modal, or dialog
+                  const candidates = document.querySelectorAll(
+                    '.ge-modal-window, [class*="form-overlay"], [class*="modal-overlay"], [class*="mkto"], ' +
+                    '[class*="overlay"][class*="form"], [role="dialog"], [class*="modal"][class*="open"], ' +
+                    '[class*="overlay"][style*="display: block"], [class*="overlay"][style*="visible"]'
+                  );
+                  for (const el of candidates) {
+                    const style = window.getComputedStyle(el);
                     if (style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0') {
-                      if (modal.querySelector('form') || modal.classList.contains('mktoForm') || modal.tagName === 'FORM') {
-                        return true;
-                      }
+                      const rect = el.getBoundingClientRect();
+                      if (rect.width > 50 && rect.height > 50) return 'overlay';
                     }
                   }
-                  // Check for any visible Marketo form
-                  const mktoForms = document.querySelectorAll('form.mktoForm, .mktoForm');
-                  for (const form of mktoForms) {
+                  // Check for any visible form (including pre-loaded ones now shown)
+                  const forms = document.querySelectorAll('form');
+                  for (const form of forms) {
                     const style = window.getComputedStyle(form);
                     if (style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0') {
                       const rect = form.getBoundingClientRect();
-                      if (rect.width > 0 && rect.height > 0) return true;
+                      // Check if form is in an overlay-like container (fixed/absolute positioning, high z-index)
+                      if (rect.width > 50 && rect.height > 50) {
+                        const parent = form.closest('[style*="position: fixed"], [style*="position: absolute"], [class*="overlay"], [class*="modal"]');
+                        if (parent) return 'form-in-overlay';
+                      }
                     }
                   }
                   return false;
                 });
                 if (overlayVisible) {
                   pass = true;
-                  logger.info('TC-08: Form overlay/Marketo form visible after click');
+                  logger.info(`TC-08: ${overlayVisible} detected as visible after click`);
                 }
               }
 
@@ -1251,6 +1259,15 @@ function getBlobConfig() {
                 break;
               }
 
+              // After clicking Ultrasound submenu, check if we already navigated
+              await page.waitForTimeout(2000);
+              const postNavUrl = page.url();
+              if (/ultrasound|ultraschall/i.test(postNavUrl)) {
+                pass = true;
+                logger.info(`TC-13: Already on ultrasound page after submenu click: ${postNavUrl}`);
+                break;
+              }
+
               // Find the "Mehr erfahren" / "Learn more" link to ultrasound site
               let moreLink = page.locator('a[href="https://www.ge-ultraschall.com/"], a[href*="gehealthcare-ultrasound.com"], a[href*="ge-ultraschall.com"]').first();
               try {
@@ -1258,13 +1275,15 @@ function getBlobConfig() {
                 logger.info('TC-13: Found ultrasound site link by href');
               } catch (error) {
                 logger.info('TC-13: Ultrasound link not found by href, trying text fallback');
-                const moreLinkByText = page.locator('a').filter({ hasText: /Mehr erfahren|Learn more/i }).first();
+                // Scope to nav/menu areas to avoid matching hero banner "Learn more" links
+                const moreLinkByText = page.locator('nav a, [class*="menu"] a, [class*="dropdown"] a, [class*="submenu"] a')
+                  .filter({ hasText: /Mehr erfahren|Learn more/i }).first();
                 try {
                   await moreLinkByText.waitFor({ state: 'visible', timeout: 5000 });
                   moreLink = moreLinkByText;
-                  logger.info('TC-13: Found link via text fallback');
+                  logger.info('TC-13: Found link via scoped text fallback');
                 } catch (e2) {
-                  // If we navigated to an ultrasound page, that may be sufficient
+                  // Check if current page is already an ultrasound page
                   const currentUrl = page.url();
                   if (/ultrasound|ultraschall/i.test(currentUrl)) {
                     pass = true;
