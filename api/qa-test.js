@@ -877,13 +877,33 @@ function getBlobConfig() {
                 break;
               }
 
-              await playButton.click({ force: true });
-              logger.info(`TC-07: Clicked play button, waiting for modal`);
+              // The play button is often a nested <div> whose click handler lives on
+              // the parent image container. Clicking the div directly (especially with
+              // force) bypasses the handler. Click the container when it exists.
+              if (await imgContainer.count()) {
+                await imgContainer.first().click({ force: true });
+                logger.info(`TC-07: Clicked imgContainer, waiting for modal`);
+              } else {
+                await playButton.click({ force: true });
+                logger.info(`TC-07: Clicked play button, waiting for modal`);
+              }
 
-              const modal = await page.waitForSelector(
+              let modal = await page.waitForSelector(
                 'div.ge-modal-window, div.ge-contentTeaser__content-section__video-modal, div.ge-contentTeaser__content-section__vidyard-video-modal',
                 { timeout: 10000 }
               ).catch(() => null);
+
+              // Fallback: if the container click didn't open a modal, try clicking
+              // the play button directly
+              if (!modal && await imgContainer.count()) {
+                logger.info(`TC-07: No modal from container click, retrying with play button`);
+                await playButton.click({ force: true }).catch(() => {});
+                modal = await page.waitForSelector(
+                  'div.ge-modal-window, div.ge-contentTeaser__content-section__video-modal, div.ge-contentTeaser__content-section__vidyard-video-modal',
+                  { timeout: 5000 }
+                ).catch(() => null);
+              }
+
               if (!modal) {
                 pass = false;
                 errorDetails = 'Video modal did not open';
@@ -1163,11 +1183,18 @@ function getBlobConfig() {
               let usedAemFallback = false;
 
               // Strategy 1: US-style nav with German labels (Produkte -> Ultraschall)
-              const produkteButton = page.getByRole('button', { name: 'Produkte' }).first();
+              // Try both button and link roles — AEM may render it as either.
+              const produkteButton = page.locator(
+                '[role="button"][aria-label*="Produkte" i], ' +
+                'nav button:has-text("Produkte"), nav a:has-text("Produkte"), ' +
+                'header button:has-text("Produkte"), header a:has-text("Produkte")'
+              ).first();
               try {
                 await produkteButton.waitFor({ state: 'visible', timeout: 5000 });
-                logger.info('TC-13: Produkte button found (US-style nav)');
-                await produkteButton.click();
+                logger.info('TC-13: Produkte button found');
+                await produkteButton.hover();
+                await page.waitForTimeout(500);
+                await produkteButton.click().catch(() => {});
 
                 let ultraschallButton = page.getByRole('button', { name: 'Ultraschall' });
                 try {
@@ -1212,19 +1239,38 @@ function getBlobConfig() {
                 }
               }
 
-              // Strategy 3: AEM-style navigation
+              // Strategy 3: AEM-style navigation — hover Produkte, hover Ultraschall to
+              // reveal the right column that contains the "Mehr erfahren" link.
               if (!navOpened) {
                 usedAemFallback = true;
                 try {
-                  const navItem = page.locator('li.ge_nav-menu-item').filter({ hasText: /Ultraschall|Ultrasound/i }).first();
-                  if (await navItem.count()) {
-                    await navItem.hover();
-                    await page.waitForTimeout(500);
-                    const subLabel = page.locator('span.menu-label').filter({ hasText: /Ultraschall|Ultrasound/i }).first();
+                  // Hover the top-level Produkte nav item to open the dropdown
+                  const produkteNavItem = page.locator('li.ge_nav-menu-item, [class*="nav-menu-item"]')
+                    .filter({ hasText: /^\s*Produkte\s*$/i }).first();
+                  if (await produkteNavItem.count()) {
+                    await produkteNavItem.hover();
+                    await page.waitForTimeout(800);
+                  }
+
+                  // Hover the Ultraschall category in the left column (not click —
+                  // clicking may navigate, while hover reveals the right column)
+                  const ultraschallCategory = page.locator(
+                    'li.ge_nav-menu-item, [class*="menu-item"], [class*="category"]'
+                  ).filter({ hasText: /^\s*Ultraschall\s*$/i }).first();
+
+                  if (await ultraschallCategory.count()) {
+                    await ultraschallCategory.hover();
+                    await page.waitForTimeout(1500); // wait for right column to render
+                    logger.info('TC-13: AEM Ultraschall category hovered, submenu should be open');
+                    navOpened = true;
+                  } else {
+                    // Fallback to span.menu-label click
+                    const subLabel = page.locator('span.menu-label, [class*="menu-label"]')
+                      .filter({ hasText: /Ultraschall|Ultrasound/i }).first();
                     if (await subLabel.count()) {
-                      await subLabel.click();
-                      await page.waitForTimeout(500);
-                      logger.info('TC-13: AEM Ultraschall/Ultrasound submenu opened');
+                      await subLabel.hover();
+                      await page.waitForTimeout(1500);
+                      logger.info('TC-13: AEM submenu opened via menu-label hover');
                       navOpened = true;
                     }
                   }
@@ -1268,21 +1314,43 @@ function getBlobConfig() {
                 break;
               }
 
-              // Find the "Mehr erfahren" / "Learn more" link to ultrasound site
-              let moreLink = page.locator('a[href="https://www.ge-ultraschall.com/"], a[href*="gehealthcare-ultrasound.com"], a[href*="ge-ultraschall.com"]').first();
+              // Find the "Mehr erfahren" / "Learn more" link to ultrasound site.
+              // The final destination is https://gehealthcare-ultrasound.com/de/ (per Ryan).
+              let moreLink = page.locator(
+                'a[href*="gehealthcare-ultrasound.com"], a[href*="ge-ultraschall.com"]'
+              ).first();
               try {
-                await moreLink.waitFor({ state: 'visible', timeout: usedAemFallback ? 5000 : 30000 });
+                await moreLink.waitFor({ state: 'visible', timeout: usedAemFallback ? 8000 : 30000 });
                 logger.info('TC-13: Found ultrasound site link by href');
               } catch (error) {
                 logger.info('TC-13: Ultrasound link not found by href, trying text fallback');
-                // Scope to nav/menu areas to avoid matching hero banner "Learn more" links
-                const moreLinkByText = page.locator('nav a, [class*="menu"] a, [class*="dropdown"] a, [class*="submenu"] a')
-                  .filter({ hasText: /Mehr erfahren|Learn more/i }).first();
-                try {
-                  await moreLinkByText.waitFor({ state: 'visible', timeout: 5000 });
-                  moreLink = moreLinkByText;
-                  logger.info('TC-13: Found link via scoped text fallback');
-                } catch (e2) {
+                // Broader scope — the AEM submenu may not be inside a standard nav/menu
+                // ancestor. Look for visible "Mehr erfahren" or "Learn more" anchor text
+                // anywhere, then filter to those likely inside a menu structure.
+                const candidates = page.locator('a:visible').filter({ hasText: /Mehr erfahren|Learn more/i });
+                const count = await candidates.count();
+                logger.info(`TC-13: Found ${count} candidate "Mehr erfahren"/"Learn more" links`);
+
+                let matched = null;
+                for (let i = 0; i < count; i++) {
+                  const candidate = candidates.nth(i);
+                  // Prefer links inside a nav or menu-like ancestor, or with ultrasound-related href
+                  const parentInfo = await candidate.evaluate(el => {
+                    const nav = el.closest('nav, [class*="menu"], [class*="dropdown"], [class*="submenu"], [class*="nav-"], ul');
+                    return { inNav: !!nav, href: el.getAttribute('href') || '' };
+                  }).catch(() => ({ inNav: false, href: '' }));
+
+                  if (parentInfo.inNav || /ultrasound|ultraschall/i.test(parentInfo.href)) {
+                    matched = candidate;
+                    logger.info(`TC-13: Selected candidate ${i}: href=${parentInfo.href}, inNav=${parentInfo.inNav}`);
+                    break;
+                  }
+                }
+
+                if (matched) {
+                  moreLink = matched;
+                  logger.info('TC-13: Found link via broadened text fallback');
+                } else {
                   // Check if current page is already an ultrasound page
                   const currentUrl = page.url();
                   if (/ultrasound|ultraschall/i.test(currentUrl)) {
