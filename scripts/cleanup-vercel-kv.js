@@ -10,21 +10,14 @@ const CUTOFF_DAYS = 60;
  * cursor must be a number; returns { keys: string[], cursor: number }.
  */
 async function listKeys(cursor = 0) {
-  const url = `${KV_REST_API_URL}/scan`;
-  const payload = {
-    cursor,
-    match: '*',
-    count: 100
-  };
+  // Upstash REST SCAN: the cursor is a PATH segment and MATCH/COUNT are query
+  // params (the previous `POST /scan` with a JSON body returned "ERR invalid
+  // cursor"). Response shape: { result: [nextCursor, [keys...]] }.
+  const url = `${KV_REST_API_URL}/scan/${cursor}?match=*&count=100`;
 
-  console.log(`[DEBUG] SCAN ${url} →`, payload);
+  console.log(`[DEBUG] SCAN ${url}`);
   const res = await fetch(url, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${KV_REST_API_TOKEN}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(payload)
+    headers: { Authorization: `Bearer ${KV_REST_API_TOKEN}` }
   });
 
   if (!res.ok) {
@@ -32,9 +25,10 @@ async function listKeys(cursor = 0) {
     throw new Error(`SCAN failed: ${res.status} ${res.statusText} – ${body}`);
   }
 
-  const { result, cursor: nextCursor } = await res.json();
-  // Upstash returns nextCursor as a string sometimes, convert to number
-  return { keys: result, cursor: Number(nextCursor) };
+  const { result } = await res.json();
+  const nextCursor = Array.isArray(result) ? Number(result[0]) : 0;
+  const keys = Array.isArray(result) ? result[1] : [];
+  return { keys, cursor: nextCursor };
 }
 
 /**
@@ -56,23 +50,19 @@ async function getKeyValue(key) {
  * Deletes a batch of keys from Vercel KV.
  */
 async function batchDeleteKeys(keys) {
-  const url = `${KV_REST_API_URL}/del`;
-  console.log(`[DEBUG] DEL ${keys.length} keys:`, keys);
+  // Upstash REST DEL: keys are PATH segments; returns { result: <count> }.
+  const url = `${KV_REST_API_URL}/del/${keys.map(encodeURIComponent).join('/')}`;
+  console.log(`[DEBUG] DEL ${keys.length} keys`);
   const res = await fetch(url, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${KV_REST_API_TOKEN}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(keys)
+    headers: { Authorization: `Bearer ${KV_REST_API_TOKEN}` }
   });
   if (!res.ok) {
     const body = await res.text();
     throw new Error(`DEL failed: ${res.status} ${res.statusText} – ${body}`);
   }
   const { result } = await res.json();
-  console.log(`[INFO] Successfully deleted ${result.length} keys`);
-  return result;
+  console.log(`[INFO] Successfully deleted ${result} keys`);
+  return result; // integer count
 }
 
 /**
@@ -124,7 +114,7 @@ async function cleanup() {
 
       if (toDelete.length) {
         const deleted = await batchDeleteKeys(toDelete);
-        totalDeleted += deleted.length;
+        totalDeleted += deleted;
       } else {
         console.log('[INFO] No keys to delete in this batch');
       }
