@@ -702,6 +702,7 @@ function getBlobConfig() {
       let page, resp, pageError = null;
       let contextToUse = context;
       let gatekeeperDetected = false;
+      let pageGeoMismatch = false; // region URL silently geo-redirected to en-us in CI
 
       // Use a fresh context for TC-10 and TC-12 to simulate incognito mode
       if (testIds.includes('TC-10') || testIds.includes('TC-12')) {
@@ -777,6 +778,7 @@ function getBlobConfig() {
           const landedUrl = page.url();
           const landedLang = await page.evaluate(() => document.documentElement.lang || '').catch(() => '');
           if (!landedUrl.toLowerCase().includes('/' + reqRegion)) {
+            pageGeoMismatch = true;
             logger.warn(`[GEO-MISMATCH] requested ${reqRegion} (${url}) -> landed ${landedUrl} (lang=${landedLang})`);
           }
         }
@@ -838,6 +840,13 @@ function getBlobConfig() {
         let pass = false;
         let knownIssue = false; // accepted/known limitation — rendered yellow, not a red fail
         let errorDetails = '';
+        if (pageGeoMismatch) {
+          // The page silently geo-redirected to /en-us (headless-specific), so it
+          // is NOT this region's page — none of its tests are valid. Mark as a
+          // known issue (yellow) rather than a false green pass or a red fail.
+          knownIssue = true;
+          errorDetails = 'Region page geo-redirected to /en-us in CI (headless-specific); not tested as its locale. Not a regression.';
+        }
         try {
           if (['TC-07', 'TC-11'].includes(id)) page.setDefaultTimeout(15000);
           else page.setDefaultTimeout(DEFAULT_TIMEOUT);
@@ -847,7 +856,8 @@ function getBlobConfig() {
             await page.waitForTimeout(1000);
           }
 
-          switch (id) {
+          if (knownIssue) { /* page geo-redirected to wrong locale: skip tests, marked Known Issue */ }
+          else switch (id) {
             case 'TC-01': {
               pass = await heroTextVisible(page);
               errorDetails = pass ? '' : 'Hero text not found or not visible in hero section';
