@@ -32,16 +32,16 @@ jobs:
     environment: ${{ (github.event.inputs.run_env == 'test' || github.event.inputs.run_env == 'preview') && 'Preview' || '' }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: '20'
+          node-version: '22'
 
       - name: Cache Node.js dependencies
         id: cache-npm
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: node_modules
           key: ${{ runner.os }}-npm-${{ hashFiles('package-lock.json') }}
@@ -53,7 +53,7 @@ jobs:
 
       - name: Cache Playwright browsers
         id: cache-playwright
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.cache/ms-playwright
           key: ${{ runner.os }}-playwright-${{ hashFiles('package.json', 'package-lock.json') }}
@@ -138,14 +138,14 @@ jobs:
 
       - name: Upload results artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: qa-test-results-${{ github.run_id }}
           path: results-${{ github.run_id }}.xlsx
 
       - name: Upload screenshots artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: screenshots-${{ github.run_id }}
           path: screenshots/*.png
@@ -162,14 +162,14 @@ jobs:
 
       - name: Upload videos artifact
         if: steps.check_videos.outputs.has_videos == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: videos-${{ github.run_id }}
           path: videos/*.webm
 
       - name: Upload debug logs artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: debug-logs-${{ github.run_id }}
           path: debug_logs/
@@ -214,7 +214,7 @@ jobs:
 
       - name: Upload summary.json artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: summary-json-${{ github.run_id }}
           path: summary.json
