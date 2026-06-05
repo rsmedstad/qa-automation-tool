@@ -816,6 +816,7 @@ function getBlobConfig() {
         await handleSurvey(page);
 
         let pass = false;
+        let knownIssue = false; // accepted/known limitation — rendered yellow, not a red fail
         let errorDetails = '';
         try {
           if (['TC-07', 'TC-11'].includes(id)) page.setDefaultTimeout(15000);
@@ -1244,6 +1245,7 @@ function getBlobConfig() {
               const docLang = await page.evaluate(() => document.documentElement.lang || '').catch(() => '');
               if (/\/en-us(\/|$|\?)/i.test(page.url()) || docLang.toLowerCase().startsWith('en')) {
                 pass = false;
+                knownIssue = true;
                 errorDetails = 'Known geo-limitation: GE redirected /de-de to /en-us from US CI (headless-specific); German Ultraschall nav unavailable. Not a regression.';
                 logger.warn(`TC-13: ${errorDetails}`);
                 break;
@@ -1556,10 +1558,10 @@ function getBlobConfig() {
           }
         }
 
-        results[idx][id] = pass ? 'Pass' : 'Fail';
-        const result = pass ? 'pass' : 'fail';
+        results[idx][id] = knownIssue ? 'Known Issue' : (pass ? 'Pass' : 'Fail');
+        const result = knownIssue ? 'known_issue' : (pass ? 'pass' : 'fail');
         await insertTestResult(url, region, id, result, errorDetails, null, null);
-        if (!pass) failedTestIds.push(id);
+        if (!pass && !knownIssue) failedTestIds.push(id);
       }
 
       let screenshotUrl = null;
@@ -1612,7 +1614,9 @@ function getBlobConfig() {
       const relevantTestResults = validTestIds.map(id => results[idx][id]);
       let pagePassStatus = 'NA';
       if (relevantTestResults.length > 0) {
-        pagePassStatus = relevantTestResults.includes('Fail') ? 'Fail' : 'Pass';
+        if (relevantTestResults.includes('Fail')) pagePassStatus = 'Fail';
+        else if (relevantTestResults.includes('Known Issue')) pagePassStatus = 'Known Issue';
+        else pagePassStatus = 'Pass';
       }
       results[idx]['Page Pass?'] = pagePassStatus;
 
@@ -1665,18 +1669,23 @@ function getBlobConfig() {
     const passed = results.filter(r => r['Page Pass?'] === 'Pass').length;
     const failed = results.filter(r => r['Page Pass?'] === 'Fail').length;
     const na = results.filter(r => r['Page Pass?'] === 'NA').length;
+    const knownIssue = results.filter(r => r['Page Pass?'] === 'Known Issue').length;
 
-    logger.info(`\nSummary: ${passed}/${total} pages passed, ${failed} failed, ${na} N/A.`);
+    logger.info(`\nSummary: ${passed}/${total} pages passed, ${failed} failed, ${knownIssue} known issue, ${na} N/A.`);
     const testFailureSummary = {};
+    const knownIssueSummary = {};
     allTestIds.forEach(id => {
       const f = results.filter(r => r[id] === 'Fail').length;
       if (f > 0) {
         logger.info(`• ${f} × ${id}`);
         testFailureSummary[id] = f;
       }
+      const k = results.filter(r => r[id] === 'Known Issue').length;
+      if (k > 0) knownIssueSummary[id] = k;
     });
 
     const failedUrlsList = [];
+    const knownIssueUrlsList = [];
     const urlResults = [];
     for (const result of results) {
       const pagePassStatus = result['Page Pass?'];
@@ -1684,10 +1693,15 @@ function getBlobConfig() {
         const failedTestsForUrl = allTestIds.filter(id => result[id] === 'Fail');
         failedUrlsList.push({ url: result['url'], failedTests: failedTestsForUrl });
       }
+      if (pagePassStatus === 'Known Issue') {
+        const knownIssueTestsForUrl = allTestIds.filter(id => result[id] === 'Known Issue');
+        knownIssueUrlsList.push({ url: result['url'], knownIssueTests: knownIssueTestsForUrl });
+      }
       urlResults.push({
         url: result['url'],
         passed: pagePassStatus === 'Pass',
-        ...(pagePassStatus === 'Fail' && { failedTests: allTestIds.filter(id => result[id] === 'Fail') })
+        ...(pagePassStatus === 'Fail' && { failedTests: allTestIds.filter(id => result[id] === 'Fail') }),
+        ...(pagePassStatus === 'Known Issue' && { knownIssue: true, knownIssueTests: allTestIds.filter(id => result[id] === 'Known Issue') })
       });
     }
 
@@ -1702,7 +1716,7 @@ function getBlobConfig() {
     });
 
     const metaSheet = outputWorkbook.addWorksheet('Metadata');
-    metaSheet.getRow(1).values = ['Run ID', 'Run Date', 'Run Time', 'Initiated By', 'Total URLs', 'Passed', 'Failed', 'N/A', 'Notes'];
+    metaSheet.getRow(1).values = ['Run ID', 'Run Date', 'Run Time', 'Initiated By', 'Total URLs', 'Passed', 'Failed', 'Known Issues', 'N/A', 'Notes'];
     metaSheet.getRow(2).values = [
       runId,
       new Date().toISOString().slice(0, 10),
@@ -1711,8 +1725,9 @@ function getBlobConfig() {
       total,
       passed,
       failed,
+      knownIssue,
       na,
-      `Completed run: ${passed} passed, ${failed} failed`
+      `Completed run: ${passed} passed, ${failed} failed, ${knownIssue} known issue`
     ];
 
     await outputWorkbook.xlsx.writeFile(outputFile);
@@ -1730,9 +1745,12 @@ function getBlobConfig() {
       successCount: passed,
       failureCount: failed,
       naCount: na,
+      knownIssueCount: knownIssue,
       initiatedBy: initiatedBy,
       testFailureSummary,
+      knownIssueSummary,
       failedUrls: failedUrlsList,
+      knownIssueUrls: knownIssueUrlsList,
       urlResults: urlResults,
       screenshot_paths: allScreenshotUrls,
       video_paths: allVideoUrls,

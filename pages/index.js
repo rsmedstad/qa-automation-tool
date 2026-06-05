@@ -215,6 +215,7 @@ export default function Dashboard() {
             successCount: run.successCount || run.passed || run.total || 0,
             failureCount: run.failureCount || run.failed || 0,
             naCount: run.naCount || run.na || 0,
+            knownIssueCount: run.knownIssueCount || run.known_issue || 0,
             date: runDate.toISOString(),
             screenshotPaths: screenshots,
             videoPaths: videos,
@@ -293,10 +294,11 @@ export default function Dashboard() {
         const passedData = recentRuns.map((run) => run.successCount || 0);
         const failedData = recentRuns.map((run) => run.failureCount || 0);
         const naData = recentRuns.map((run) => run.naCount || 0);
+        const knownIssueData = recentRuns.map((run) => run.knownIssueCount || 0);
 
         const maxTotalUrls = Math.max(
           1,
-          ...recentRuns.map((run) => (run.successCount || 0) + (run.failureCount || 0) + (run.naCount || 0))
+          ...recentRuns.map((run) => (run.successCount || 0) + (run.failureCount || 0) + (run.naCount || 0) + (run.knownIssueCount || 0))
         );
         const yAxisMax = maxTotalUrls > 0 ? Math.ceil(maxTotalUrls / 5) * 5 + 5 : 10;
 
@@ -311,6 +313,15 @@ export default function Dashboard() {
           { label: '# Passed', data: passedData, backgroundColor: 'rgba(75, 192, 75, 0.6)', borderColor: 'rgba(75, 192, 75, 1)', borderWidth: 1 },
           { label: '# Failed', data: failedData, backgroundColor: 'rgba(255, 99, 132, 0.6)', borderColor: 'rgba(255, 99, 132, 1)', borderWidth: 1 },
         ];
+        if (knownIssueData.some(count => count > 0)) {
+          datasets.push({
+            label: '# Known Issues',
+            data: knownIssueData,
+            backgroundColor: 'rgba(234, 179, 8, 0.6)',
+            borderColor: 'rgba(234, 179, 8, 1)',
+            borderWidth: 1,
+          });
+        }
         if (naData.some(count => count > 0)) {
           datasets.push({
             label: '# N/A',
@@ -827,6 +838,7 @@ export default function Dashboard() {
                           <th className="p-3 font-semibold text-gray-600 dark:text-gray-300">Initiator</th>
                           <th className="p-3 font-semibold text-gray-600 dark:text-gray-300 text-center">Passed</th>
                           <th className="p-3 font-semibold text-gray-600 dark:text-gray-300 text-center">Failed</th>
+                          <th className="p-3 font-semibold text-gray-600 dark:text-gray-300 text-center" title="Known, accepted limitations (e.g. CI geo-redirects) — not regressions">Known Issues</th>
                           <th className="p-3 font-semibold text-gray-600 dark:text-gray-300">Output Artifacts</th>
                         </tr>
                       </thead>
@@ -845,6 +857,7 @@ export default function Dashboard() {
                               <td className="p-3 whitespace-nowrap">{run.initiator || 'N/A'}</td>
                               <td className="p-3 text-green-600 dark:text-green-400 font-medium text-center">{run.successCount || 0}</td>
                               <td className="p-3 text-red-600 dark:text-red-400 font-medium text-center">{run.failureCount || 0}</td>
+                              <td className="p-3 text-yellow-500 dark:text-yellow-400 font-medium text-center">{run.knownIssueCount || 0}</td>
                               <td className="p-3">
                                 {run.hasArtifacts || run.screenshotPaths.length > 0 || run.videoPaths.length > 0 ? (
                                   <div className="flex items-center space-x-2">
@@ -881,7 +894,7 @@ export default function Dashboard() {
                             </tr>
                             {expandedRuns.includes(run.runId) && (
                               <tr>
-                                <td colSpan="6" className="p-3 bg-gray-100 dark:bg-gray-700">
+                                <td colSpan="7" className="p-3 bg-gray-100 dark:bg-gray-700">
                                   <div className="space-y-2">
                                     <div className="font-medium text-sm text-gray-600 dark:text-gray-400">Direct Download Links:</div>
                                     <div className="flex flex-wrap gap-3">
