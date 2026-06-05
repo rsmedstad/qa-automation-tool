@@ -5,6 +5,9 @@ on:
     - cron: '0 3 */3 * *'  # every 3 days at 3am UTC
   workflow_dispatch: # manual runs
 
+permissions:
+  contents: read
+
 env:
   KV_REST_API_URL: ${{ secrets.KV_REST_API_URL }}
   KV_REST_API_TOKEN: ${{ secrets.KV_REST_API_TOKEN }}
@@ -16,20 +19,18 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm ci  # node-fetch@^3 and @supabase/supabase-js come from package-lock.json
 
       - name: Cleanup Vercel KV
-        run: |
-          npm install  # installs node-fetch@^3 from package.json
-          node scripts/cleanup-vercel-kv.js || true
-
+        run: node scripts/cleanup-vercel-kv.js
 
       - name: Cleanup Supabase
-        run: |
-          npm install @supabase/supabase-js
-          node scripts/cleanup-supabase.js || true
+        run: node scripts/cleanup-supabase.js

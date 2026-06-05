@@ -22,6 +22,9 @@ on:
         required: false
         default: 'prod'
 
+permissions:
+  contents: read
+
 jobs:
   run-qa-tests:
     runs-on: ubuntu-latest
@@ -61,16 +64,21 @@ jobs:
 
       - name: Download custom input.xlsx for manual runs
         if: github.event_name == 'workflow_dispatch' && inputs.file_url != ''
+        env:
+          FILE_URL: ${{ inputs.file_url }}
         run: |
-          echo "Downloading input file from ${{ inputs.file_url }}"
-          curl -L -o input.xlsx "${{ inputs.file_url }}"
+          echo "Downloading input file from $FILE_URL"
+          curl -L -o input.xlsx "$FILE_URL"
 
       - name: Set initiator
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_INITIATOR: ${{ inputs.initiator }}
         run: |
-          if [ "${{ github.event_name }}" == "schedule" ]; then
+          if [ "$EVENT_NAME" == "schedule" ]; then
             echo "INITIATOR=scheduled" >> $GITHUB_ENV
           else
-            echo "INITIATOR=${{ inputs.initiator }}" >> $GITHUB_ENV
+            echo "INITIATOR=$INPUT_INITIATOR" >> $GITHUB_ENV
           fi
 
       - name: Set environment-specific variables
@@ -100,8 +108,8 @@ jobs:
         run: |
           echo "Run Environment: ${{ github.event.inputs.run_env }}"
           echo "SUPABASE_URL: $SUPABASE_URL"
-          echo "SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:0:8}..."
-          echo "BLOB_READ_WRITE_TOKEN: ${BLOB_READ_WRITE_TOKEN:0:8}..."
+          echo "SUPABASE_SERVICE_ROLE_KEY: $([ -n "$SUPABASE_SERVICE_ROLE_KEY" ] && echo 'set' || echo 'MISSING')"
+          echo "BLOB_READ_WRITE_TOKEN: $([ -n "$BLOB_READ_WRITE_TOKEN" ] && echo 'set' || echo 'MISSING')"
           echo "STORAGE_BUCKET: $STORAGE_BUCKET"
           echo "VERCEL_URL: $VERCEL_URL"
           echo "VERCEL_ENV: $VERCEL_ENV"
@@ -118,12 +126,15 @@ jobs:
           BLOB_READ_WRITE_TOKEN: ${{ env.BLOB_READ_WRITE_TOKEN }}
           BLOB_ALLOW_OVERWRITE: 'true'
           VERCEL_ENV: ${{ env.VERCEL_ENV }}
+          RUN_INITIATOR: ${{ env.INITIATOR }}
+          CAPTURE_VIDEO: ${{ inputs.capture_video }}
+          RUN_ID: ${{ github.run_id }}
         run: |
           node api/qa-test.js \
             input.xlsx \
-            results-${{ github.run_id }}.xlsx \
-            "${{ env.INITIATOR }}" \
-            "${{ inputs.capture_video }}"
+            "results-${RUN_ID}.xlsx" \
+            "$RUN_INITIATOR" \
+            "$CAPTURE_VIDEO"
 
       - name: Upload results artifact
         if: always()
