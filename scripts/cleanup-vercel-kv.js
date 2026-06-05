@@ -7,9 +7,12 @@ const CUTOFF_DAYS = 60;
 
 /**
  * Calls the Upstash /scan endpoint.
- * cursor must be a number; returns { keys: string[], cursor: number }.
+ * cursor is a string ("0" to start); returns { keys: string[], cursor: string }.
+ * Keep the cursor as a STRING — Redis SCAN cursors are 64-bit and routinely
+ * exceed Number.MAX_SAFE_INTEGER (2^53), so Number() would corrupt them and
+ * truncate the scan.
  */
-async function listKeys(cursor = 0) {
+async function listKeys(cursor = '0') {
   // Upstash REST SCAN: the cursor is a PATH segment and MATCH/COUNT are query
   // params (the previous `POST /scan` with a JSON body returned "ERR invalid
   // cursor"). Response shape: { result: [nextCursor, [keys...]] }.
@@ -26,8 +29,8 @@ async function listKeys(cursor = 0) {
   }
 
   const { result } = await res.json();
-  const nextCursor = Array.isArray(result) ? Number(result[0]) : 0;
-  const keys = Array.isArray(result) ? result[1] : [];
+  const nextCursor = Array.isArray(result) ? String(result[0]) : '0';
+  const keys = Array.isArray(result) ? (result[1] || []) : [];
   return { keys, cursor: nextCursor };
 }
 
@@ -73,7 +76,7 @@ async function cleanup() {
   const cutoffTime = Date.now() - CUTOFF_DAYS * 24 * 60 * 60 * 1000;
   const cutoffDate = new Date(cutoffTime).toISOString();
   console.log(`[INFO] Cutoff date: ${cutoffDate}`);
-  let cursor = 0;
+  let cursor = '0';
   let totalDeleted = 0;
 
   try {
@@ -119,7 +122,7 @@ async function cleanup() {
         console.log('[INFO] No keys to delete in this batch');
       }
       cursor = nextCursor;
-    } while (cursor !== 0);
+    } while (cursor !== '0');
 
     console.log(`[INFO] Cleanup complete. Total keys deleted: ${totalDeleted}`);
   } catch (err) {
