@@ -265,10 +265,29 @@ function getBlobConfig() {
 
     // Launch Playwright browser for testing
     const browser = await chromium.launch();
-    const defaultContextOptions = { 
-      viewport: DEFAULT_VIEWPORT // Default to larger viewport
+
+    // Anti-headless-detection: GE serves/redirects automated browsers differently
+    // (e.g. /de-de geo-redirects to /en-us for headless, but NOT for a real US
+    // browser — even fresh incognito). Derive a realistic User-Agent from the
+    // actual browser with the "HeadlessChrome" token stripped, and mask
+    // navigator.webdriver, so region pages render as their true locale in CI.
+    const _uaProbeCtx = await browser.newContext();
+    const _uaProbePage = await _uaProbeCtx.newPage();
+    const realisticUserAgent = (await _uaProbePage.evaluate(() => navigator.userAgent)).replace(/HeadlessChrome/g, 'Chrome');
+    await _uaProbeCtx.close();
+    logger.info(`Using realistic User-Agent: ${realisticUserAgent}`);
+
+    const stealthInit = () => {
+      Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+    };
+
+    const defaultContextOptions = {
+      viewport: DEFAULT_VIEWPORT, // Default to larger viewport
+      userAgent: realisticUserAgent,
+      locale: 'en-US',
     };
     const context = await browser.newContext(defaultContextOptions);
+    await context.addInitScript(stealthInit);
 
     // Set default timeouts
     context.setDefaultTimeout(DEFAULT_TIMEOUT);
@@ -689,6 +708,7 @@ function getBlobConfig() {
         contextToUse = await browser.newContext(defaultContextOptions);
         contextToUse.setDefaultTimeout(DEFAULT_TIMEOUT);
         contextToUse.setDefaultNavigationTimeout(NAVIGATION_TIMEOUT);
+        await contextToUse.addInitScript(stealthInit);
         await contextToUse.route('**/*', route => {
           const url = route.request().url();
           if (BLOCKED_RESOURCES.some(substring => url.includes(substring))) {
