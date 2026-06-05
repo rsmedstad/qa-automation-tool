@@ -747,6 +747,19 @@ function getBlobConfig() {
         gatekeeperDetected = await handleGatekeeper(page, url);
         await handleOverlays(page);
         await handleSurvey(page);
+
+        // Blind-spot detector: warn if a region URL silently lands on a different
+        // lang-region (e.g. headless /de-de -> /en-us geo-redirect), which means
+        // the tests would be evaluating the wrong locale's page.
+        const reqRegionM = url.match(/gehealthcare\.com\/([a-z]{2}-[a-z]{2})(?:\/|$|\?)/i);
+        if (reqRegionM) {
+          const reqRegion = reqRegionM[1].toLowerCase();
+          const landedUrl = page.url();
+          const landedLang = await page.evaluate(() => document.documentElement.lang || '').catch(() => '');
+          if (!landedUrl.toLowerCase().includes('/' + reqRegion)) {
+            logger.warn(`[GEO-MISMATCH] requested ${reqRegion} (${url}) -> landed ${landedUrl} (lang=${landedLang})`);
+          }
+        }
       } catch (error) {
         logger.error(`Navigation error for ${url}: ${error.message}`);
         pageError = `Navigation failed: ${error.message}`;
