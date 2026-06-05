@@ -805,7 +805,7 @@ function getBlobConfig() {
             }
             case 'TC-07': {
               logger.info(`TC-07: Starting for ${url}`);
-              await page.waitForLoadState('networkidle');
+              await page.waitForLoadState('domcontentloaded');
               await page.waitForTimeout(500);
 
               if (await page.$('video, video[data-testid="hls-video"], iframe[src*="vidyard"], [data-testid*="video"]')) {
@@ -961,7 +961,7 @@ function getBlobConfig() {
             }
             case 'TC-08': {
               logger.info(`TC-08: Starting for ${url}`);
-              await page.waitForLoadState('networkidle');
+              await page.waitForLoadState('domcontentloaded');
               await page.waitForTimeout(500);
 
               const initialForms = await page.$$('form');
@@ -1175,15 +1175,40 @@ function getBlobConfig() {
             }
             case 'TC-13': {
               logger.info(`TC-13: Starting for ${url}`);
-              await page.waitForLoadState('networkidle');
+              await page.waitForLoadState('domcontentloaded');
               await page.waitForTimeout(500);
 
               // Try multiple navigation strategies to reach the Ultraschall/Ultrasound section
               let navOpened = false;
               let usedAemFallback = false;
 
+              // Strategy 0: the de-de AEM mega-menu pre-renders the Ultraschall
+              // "Mehr erfahren" link (href -> ge-ultraschall.com) but keeps it
+              // hidden until Produkte > Ultraschall is hovered. If that link is in
+              // the DOM, hover to reveal it and hand off to the downstream
+              // link-finder / click + validate below.
+              const ultraschallSiteLink = page.locator(
+                'a[href*="ge-ultraschall.com"], a[href*="gehealthcare-ultrasound.com"]'
+              ).first();
+              if (await ultraschallSiteLink.count()) {
+                usedAemFallback = true;
+                logger.info('TC-13: Strategy 0 — Ultraschall site link present in DOM, hovering Produkte > Ultraschall to reveal');
+                const produkteTop = page.locator('nav, header').getByText(/^\s*Produkte\s*$/).first();
+                if (await produkteTop.count()) {
+                  await produkteTop.hover().catch(() => {});
+                  await page.waitForTimeout(600);
+                }
+                const ultraschallCat = page.locator('nav, header').getByText(/^\s*Ultraschall\s*$/).first();
+                if (await ultraschallCat.count()) {
+                  await ultraschallCat.hover().catch(() => {});
+                  await page.waitForTimeout(900);
+                }
+                navOpened = true;
+              }
+
               // Strategy 1: US-style nav with German labels (Produkte -> Ultraschall)
               // Try both button and link roles — AEM may render it as either.
+              if (!navOpened) {
               const produkteButton = page.locator(
                 '[role="button"][aria-label*="Produkte" i], ' +
                 'nav button:has-text("Produkte"), nav a:has-text("Produkte"), ' +
@@ -1214,6 +1239,7 @@ function getBlobConfig() {
                 navOpened = true;
               } catch (e) {
                 logger.info('TC-13: German nav labels not found, trying English labels');
+              }
               }
 
               // Strategy 2: US-style nav with English labels (Products -> Ultrasound)
@@ -1288,7 +1314,7 @@ function getBlobConfig() {
                     await categoryLink.scrollIntoViewIfNeeded();
                     await categoryLink.click();
                     navOpened = true;
-                    await page.waitForLoadState('networkidle');
+                    await page.waitForLoadState('domcontentloaded');
                     await page.waitForTimeout(500);
                     logger.info('TC-13: Navigated via category link');
                   }
