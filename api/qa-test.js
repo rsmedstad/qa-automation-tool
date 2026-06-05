@@ -1219,6 +1219,23 @@ function getBlobConfig() {
               await page.waitForLoadState('domcontentloaded');
               await page.waitForTimeout(500);
 
+              // KNOWN LIMITATION (intentionally left red): from US-based CI, GE
+              // geo-redirects /de-de to /en-us. This is headless-specific — a real
+              // US browser, even a fresh incognito window, stays on /de-de — so it's
+              // GE's automated-browser handling, the same family as the GEHC
+              // headless-404 issue under investigation. On the en-us page the German
+              // Ultraschall nav does not exist, so TC-13 cannot pass from CI. Fail
+              // fast with a clear reason rather than grinding through nav strategies.
+              // (If GE ever serves de-de to headless, this guard is skipped and the
+              // real strategies below run.)
+              const docLang = await page.evaluate(() => document.documentElement.lang || '').catch(() => '');
+              if (/\/en-us(\/|$|\?)/i.test(page.url()) || docLang.toLowerCase().startsWith('en')) {
+                pass = false;
+                errorDetails = 'Known geo-limitation: GE redirected /de-de to /en-us from US CI (headless-specific); German Ultraschall nav unavailable. Not a regression.';
+                logger.warn(`TC-13: ${errorDetails}`);
+                break;
+              }
+
               // Try multiple navigation strategies to reach the Ultraschall/Ultrasound section
               let navOpened = false;
               let usedAemFallback = false;
