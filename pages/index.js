@@ -801,13 +801,14 @@ export default function Dashboard() {
                       )}
                       <button
                         onClick={() => {
-                          const headers = ['Crawl Name', 'Date & Time', 'Initiator', 'Passed', 'Failed', 'Output Artifacts'];
+                          const headers = ['Crawl Name', 'Date & Time', 'Initiator', 'Passed', 'Failed', 'Known Issues', 'Output Artifacts'];
                           const data = displayedRuns.map(run => ({
                             'Crawl Name': run.crawlName || 'N/A',
                             'Date & Time': new Date(run.date).toLocaleString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'America/Chicago' }),
                             'Initiator': run.initiator || 'N/A',
                             'Passed': run.successCount || 0,
                             'Failed': run.failureCount || 0,
+                            'Known Issues': run.knownIssueCount || 0,
                             'Output Artifacts': run.hasArtifacts ? 'Yes' : 'No',
                           }));
                           downloadCSV(headers, data, 'recent_crawls.csv');
@@ -821,6 +822,11 @@ export default function Dashboard() {
                       </button>
                     </div>
                   </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 py-2 text-xs text-gray-500 dark:text-gray-400">
+                  <span className="inline-flex items-center"><span className="w-2.5 h-2.5 rounded-full bg-green-500 mr-1.5"></span>Passed</span>
+                  <span className="inline-flex items-center"><span className="w-2.5 h-2.5 rounded-full bg-red-500 mr-1.5"></span>Failed (regression)</span>
+                  <span className="inline-flex items-center"><span className="w-2.5 h-2.5 rounded-full bg-yellow-400 mr-1.5"></span>Known Issue — accepted limitation, not a regression (e.g. CI geo-redirect of region pages)</span>
                 </div>
                 <div className="h-[23rem] overflow-y-auto custom-scrollbar">
                   {runsLoading && !runs.length ? (

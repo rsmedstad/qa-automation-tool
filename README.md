@@ -13,7 +13,7 @@ Runs a predefined suite of end-to-end checks, aggregates results in real time, a
 
 ## Status & CI
 
-- **Scheduled tests**: every 3 hours via GitHub Actions  
+- **Scheduled tests**: every 6 hours via GitHub Actions  
 - **Cleanup tasks**: every 3 days (Supabase & Vercel KV)
 - **Preview DB keepalive**: every 3 days (test Supabase)
 - **Coverage**:  
@@ -57,13 +57,13 @@ The QA Automation Tool:
 
 ### Dashboard
 
-- **Recent Runs**: pass/fail/N-A counts, trend charts, artifact links  
+- **Recent Runs**: pass / fail / **known-issue** / N-A counts, trend charts, artifact links  
 - **Ask Gemini**: natural-language queries (passphrase-protected)  
 - **Ad-hoc Execution**: submit name, passphrase, optional Excel; trigger tests immediately  
 
 ### Scheduling & Cleanup
 
-- **Run QA**: every 3 hours (cron)  
+- **Run QA**: every 6 hours (cron)  
 - **Cleanup**: Supabase & KV data older than 60 days, every 3 days  
 
 ### Manual Validation
@@ -88,8 +88,26 @@ The QA Automation Tool:
 | **TC-10** | Gatekeeper Redirect        | Incognito + “Yes” click yields 200 status            |
 | **TC-11** | Insights Link Works        | First insights/newsroom link returns HTTP 200        |
 | **TC-12** | DocCheck Login Route       | Incognito → URL includes `/account/doccheck-login`   |
-| **TC-13** | DE Nav Redirect            | “Produkte → Ultraschall → Mehr erfahren” → target site |
+| **TC-13** | DE Nav Redirect            | “Produkte → Ultraschall → Mehr erfahren” → target site (see Known Issue below) |
 | **TC-14** | HTTP Status Code Valid     | Status 200 or valid redirect (301/302)               |
+| **TC-15** | DocCheck Login Present     | HCP-gated pages (e.g. de-de DatScan): DocCheck login iframe populates |
+| **TC-16** | Regional Microsite Loads   | Dismiss language + geo-location modals on a product microsite; page renders |
+
+### Result Statuses
+
+Each test resolves to one of four states (shown by color on the dashboard):
+
+- 🟢 **Pass** — the check succeeded.
+- 🔴 **Fail** — a genuine regression; investigate.
+- 🟡 **Known Issue** — a known, accepted limitation, **not** a regression. Today this is
+  driven by GE's client-side **GeoIP redirect**: from the US-based CI runner, some region
+  pages (`/de-de`, `/en-gb`, `/fr-fr/…`, `/en-in/…`) bounce to `/en-us`, so they can't be
+  validated as their locale in CI. A real US browser (even fresh incognito) stays on the
+  region page, so this affects automation only. The count is **flaky run-to-run** by
+  nature, reflecting how often the runner is bounced. TC-13 is the canonical example.
+- ⚪ **N/A** — the test isn't assigned to that URL.
+
+See [CHANGELOG.md](./CHANGELOG.md) for the full history.
 
 Supported hero components for **TC-01**:
 - `div[id*="ge-homepage-hero"]`
