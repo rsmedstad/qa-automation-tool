@@ -398,6 +398,26 @@ function getBlobConfig() {
           logger.info(`- Video player found: ${!!videoPlayer}`);
           logger.info(`- Video player HTML: ${videoPlayerHtml}`);
           logger.info(`- Console errors: ${consoleErrors}`);
+        } else if (testId === 'TC-13') {
+          const navInfo = await page.evaluate(() => {
+            const norm = s => (s || '').replace(/\s+/g, ' ').trim();
+            const topItems = [...document.querySelectorAll(
+              'nav button, nav a, header button, header a, [role="button"]'
+            )].map(e => norm(e.textContent)).filter(t => t && t.length < 40).slice(0, 40);
+            const usLinks = [...document.querySelectorAll(
+              'a[href*="ge-ultraschall.com"], a[href*="gehealthcare-ultrasound.com"]'
+            )].map(a => ({ href: a.getAttribute('href'), text: norm(a.textContent) }));
+            const navEl = document.querySelector('header, nav');
+            return {
+              lang: document.documentElement.lang || '',
+              url: location.href,
+              topNavTexts: topItems,
+              ultrasoundLinksInDom: usLinks,
+              navHtml: navEl ? navEl.outerHTML.slice(0, 2500) : 'no header/nav',
+            };
+          }).catch(e => ({ error: e.message }));
+          logger.info(`TC-13 Failure Details: ${JSON.stringify(navInfo).slice(0, 4500)}`);
+          logger.info(`- Console errors: ${consoleErrors}`);
         } else {
           logger.info(`${testId} Failure: No specific logging defined. Generic details:`);
           logger.info(`- Console errors: ${consoleErrors}`);
