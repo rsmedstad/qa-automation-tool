@@ -200,7 +200,7 @@ function getBlobConfig() {
     // Define all possible test IDs for reference
     const allTestIds = [
       'TC-01', 'TC-02', 'TC-03', 'TC-04', 'TC-05', 'TC-06', 'TC-07', 'TC-08',
-      'TC-09', 'TC-10', 'TC-11', 'TC-12', 'TC-13', 'TC-14'
+      'TC-09', 'TC-10', 'TC-11', 'TC-12', 'TC-13', 'TC-14', 'TC-15', 'TC-16'
     ];
 
     // Initialize results array with URL, test IDs, and default values
@@ -718,6 +718,27 @@ function getBlobConfig() {
       }
 
       page = await contextToUse.newPage();
+
+      // GE serves a client-side GeoIP redirect (GetClientCountry -> redirectUrl)
+      // that bounces non-US region pages to /en-us when hit from the US-based CI
+      // runner — which breaks region-specific tests (e.g. TC-13 on /de-de, which
+      // otherwise lands on the English site with no Ultraschall nav). Force the
+      // page's own lang-region so it stays put and renders local content.
+      {
+        const m = url.match(/gehealthcare\.com\/([a-z]{2})-([a-z]{2})(?:\/|$|\?)/i);
+        const langRegion = m ? `${m[1].toLowerCase()}-${m[2].toLowerCase()}` : 'en-us';
+        const countryCode = m ? m[2].toUpperCase() : 'US';
+        await page.route('**/GeoIPLocator/GetClientCountry**', r =>
+          r.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({
+              data: { status: 'Success', countryCode, countryName: '', websiteCountryCode: langRegion, redirectUrl: '' },
+              status: 'ok',
+            }),
+          }).catch(() => r.continue().catch(() => {}))
+        );
+      }
 
       try {
         logger.info('Navigating to URL...');
@@ -1431,6 +1452,56 @@ function getBlobConfig() {
               const c = resp ? resp.status() : 0;
               pass = (c >= 200 && c < 300) || HTTP_REDIRECT.includes(c);
               errorDetails = pass ? '' : `HTTP Status was ${c}, expected 2xx or 3xx`;
+              break;
+            }
+            case 'TC-15': {
+              // HCP-gated pages (e.g. de-de DatScan) redirect to a DocCheck login
+              // wall. Pass when the DocCheck login iframe has populated.
+              logger.info(`TC-15: Starting for ${url}`);
+              await page.waitForLoadState('domcontentloaded');
+              const dcFrame = await page.waitForSelector(
+                'iframe#dc_login_iframe, iframe[name="dc_login_iframe"], iframe[src*="doccheck.com"]',
+                { timeout: 15000 }
+              ).catch(() => null);
+              pass = !!dcFrame;
+              errorDetails = pass ? '' : 'DocCheck login iframe (#dc_login_iframe) not found';
+              logger.info(`TC-15: DocCheck iframe ${pass ? 'present' : 'NOT found'}`);
+              if (!pass) await logPageDom(page, url, 'TC-15');
+              break;
+            }
+            case 'TC-16': {
+              // Regional product microsites (e.g. gehealthcare-ultrasound.com) gate
+              // entry behind a language-confirmation modal and a geo-location modal.
+              // Dismiss both, then confirm the page renders real content.
+              logger.info(`TC-16: Starting for ${url}`);
+              await page.waitForLoadState('domcontentloaded');
+              await page.waitForTimeout(1500);
+
+              const langConfirm = await page.$('button.language-modal-submit, .language-modal-submit');
+              if (langConfirm) {
+                await langConfirm.click().catch(() => {});
+                logger.info('TC-16: Dismissed language-confirmation modal');
+                await page.waitForTimeout(1000);
+              }
+
+              const geoClose = await page.$(
+                'button.geo-location-close, [aria-label*="continue on current website" i]'
+              );
+              if (geoClose) {
+                await geoClose.click().catch(() => {});
+                logger.info('TC-16: Dismissed geo-location modal');
+                await page.waitForTimeout(1000);
+              }
+
+              const loaded = await page.evaluate(() => {
+                const hasStructure = !!document.querySelector('main, header, footer, section, [class*="hero"]');
+                const textLen = ((document.body && document.body.innerText) || '').trim().length;
+                return hasStructure && textLen > 200;
+              }).catch(() => false);
+              pass = loaded;
+              errorDetails = pass ? '' : 'Microsite did not render content after dismissing modals';
+              logger.info(`TC-16: Page ${pass ? 'loaded' : 'did NOT load'} after modal dismissal`);
+              if (!pass) await logPageDom(page, url, 'TC-16');
               break;
             }
             default: {
