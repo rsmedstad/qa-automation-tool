@@ -1,8 +1,9 @@
 name: Run QA Tests
 
 on:
-  schedule:
-    - cron: '0 */6 * * *'  # Runs every 6 hours (kept active 2026-02-01)
+  # Scheduled runs paused (project archived). Re-enable by restoring the schedule below.
+  # schedule:
+  #   - cron: '0 */6 * * *'  # every 6 hours
   workflow_dispatch:
     inputs:
       initiator:

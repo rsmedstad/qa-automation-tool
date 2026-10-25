@@ -9,6 +9,15 @@ export default async function handler(req, res) {
   }
 
   const envFilter = req.query.env;
+
+  // Archive mode (default): serve the frozen snapshot instead of live GitHub data.
+  // Set QAT_LIVE=true in the environment to resume live runs.
+  if (process.env.QAT_LIVE !== 'true') {
+    const archived = (await import('../../data/archive-runs.json')).default;
+    res.setHeader('X-QAT-Archive', 'true');
+    return res.status(200).json(envFilter ? archived.filter(run => run.environment === envFilter) : archived);
+  }
+
   const cacheKey = envFilter ? `workflow_runs_${envFilter}` : 'workflow_runs';
   const cachedData = cache.get(cacheKey);
   if (cachedData) {
