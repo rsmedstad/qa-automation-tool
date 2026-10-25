@@ -1,8 +1,9 @@
 name: Cleanup Old Data
 
 on:
-  schedule:
-    - cron: '0 3 */3 * *'  # every 3 days at 3am UTC
+  # Scheduled runs paused (project archived). Re-enable by restoring the schedule below.
+  # schedule:
+  #   - cron: '0 3 */3 * *'  # every 3 days at 3am UTC
   workflow_dispatch: # manual runs
 
 permissions:

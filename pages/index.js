@@ -126,6 +126,7 @@ const FailingTestsChart = React.memo(({ failedTests, isDarkMode, activeIssuesTab
 
 export default function Dashboard() {
   const [runs, setRuns] = useState([]);
+  const [isArchived, setIsArchived] = useState(false);
   const [question, setQuestion] = useState('');
   const [messages, setMessages] = useState([]);
   const [runsLoading, setRunsLoading] = useState(false);
@@ -195,6 +196,7 @@ export default function Dashboard() {
           }
           throw new Error(`HTTP error! status: ${res.status}, message: ${errorText}`);
         }
+        setIsArchived(res.headers.get('x-qat-archive') === 'true');
         const data = await res.json();
         console.log('Fetched runs:', data);
         const sanitizedData = data.map((run, idx) => {
@@ -675,6 +677,11 @@ export default function Dashboard() {
       </Head>
       <div className="min-h-screen bg-gray-100 dark:bg-gray-900 text-gray-900 dark:text-gray-100 transition-colors duration-200 font-sans">
         <main className="container mx-auto px-2 sm:px-4 py-6 sm:py-8">
+          {isArchived && (
+            <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-900/30 dark:border-amber-700 px-4 py-3 text-sm text-amber-900 dark:text-amber-200">
+              <strong>Archived demo.</strong> Automated testing is paused. The charts below show a snapshot of the final 60 scheduled runs (October 2026), kept to showcase what the tool did.
+            </div>
+          )}
           <div className="flex flex-col sm:flex-row justify-between items-center mb-6 sm:mb-8">
             <div className="flex items-center mb-2 sm:mb-0">
               <img
