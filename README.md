@@ -141,17 +141,14 @@ For details and any custom extraction, use the dashboard’s **Test Definitions*
 This is the **private main repository** containing QA automation source code, workflows, and configurations.
 
 ### Public Artifacts Access
-Test results and artifacts are automatically published to our public repository:
-- 🔗 **[qat-artifacts](https://github.com/rsmedstad/qat-artifacts)** - Public access to test results
-- All test runs publish summary.json, Excel results, and metadata here
-- Coworkers can access results without GitHub authentication
-- Data retention: 60 days, cleaned every 3 days
+The project is frozen (scheduled runs paused 2026-10-25). Historical test results remain in the read-only, archived repository:
+- [qat-artifacts](https://github.com/rsmedstad/qat-artifacts) - archived; do not delete or make private, because the dashboard links to its run files
+- No new results are published. The publish steps in `run-qa.yml` and `publish-artifacts.yml` target this repo and will fail harmlessly now that it is archived; point them elsewhere before resuming scheduled runs
 
 ### How it Works
-1. **Private code** (this repo) runs tests via GitHub Actions
-2. **Results publish** automatically to public qat-artifacts repo
-3. **Dashboard links** point to public artifacts for easy access
-4. **No authentication required** for viewing test results
+1. **Code** (this repo) ran tests via GitHub Actions on a schedule (now paused)
+2. **Dashboard** serves the archived run snapshot in `data/archive-runs.json`
+3. **Result files** for past runs are linked from the dashboard into the archived qat-artifacts repo
 
 For assistance, reach out via company channels (Teams/Outlook).
 

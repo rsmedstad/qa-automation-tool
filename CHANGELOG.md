@@ -3,6 +3,11 @@
 All notable changes to this project are documented here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## 2026-10-27
+
+### Changed
+- `qat-artifacts` is archived (read-only) and no longer receives results. README updated. It stays public and undeleted so dashboard result links keep working.
+
 ## 2026-06-05
 
 ### Added
